@@ -59,13 +59,15 @@ class TimePaymentApiClient {
       return this.token;
     }
 
-    console.log('[TimePayment API] Authenticating via OAuth 2.0...');
+    console.log('[TimePayment API] Authenticating via OAuth 2.0 on:', this.baseUrl);
     const tokenUrl = `${this.baseUrl}/v1/oauth2/token`;
     
     const response = await fetch(tokenUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) EmergencyFundMan/1.0'
       },
       body: JSON.stringify({
         grant_type: 'password',
@@ -83,6 +85,23 @@ class TimePaymentApiClient {
     this.token = data.access_token;
     this.tokenExpiresAt = Date.now() + ((data.expires_in || 3600) * 1000);
     console.log('[TimePayment API] Authentication successful! Token acquired.');
+
+    // Quick Dealer profile check for diagnostic logging
+    try {
+      console.log(`[TimePayment API] Verifying dealer code permissions: ${this.dealerCode}`);
+      const profRes = await fetch(`${this.baseUrl}/v1/dealers/${this.dealerCode}/profile`, {
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
+      });
+      const profText = await profRes.text();
+      console.log(`[TimePayment API] Dealer profile status [${profRes.status}]:`, profText);
+    } catch (profErr) {
+      console.warn('[TimePayment API] Profile check warning:', profErr.message);
+    }
+
     return this.token;
   }
 
@@ -185,7 +204,9 @@ class TimePaymentApiClient {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) EmergencyFundMan/1.0'
       },
       body: JSON.stringify(payload)
     });

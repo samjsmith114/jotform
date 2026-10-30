@@ -1,68 +1,83 @@
-let playwright;
-let chromium;
+/**
+ * TimePayment Multi-Step Playwright Submission Automation
+ * Dealer Code: VHD64 (Amiri Partners LLC)
+ */
 
-try {
-  playwright = require('playwright');
-} catch (e) {
-  try {
-    playwright = require('playwright-core');
-    chromium = require('@sparticuz/chromium');
-  } catch (err) {
-    console.warn('Playwright load warning:', err.message);
-  }
+const { chromium } = require('playwright');
+
+const STATE_MAP = {
+  'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR', 'california': 'CA',
+  'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE', 'florida': 'FL', 'georgia': 'GA',
+  'hawaii': 'HI', 'idaho': 'ID', 'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA',
+  'kansas': 'KS', 'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
+  'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS', 'missouri': 'MO',
+  'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
+  'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH',
+  'oklahoma': 'OK', 'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
+  'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT', 'vermont': 'VT',
+  'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV', 'wisconsin': 'WI', 'wyoming': 'WY'
+};
+
+function getUSStateCode(state) {
+  if (!state) return 'TX';
+  const trimmed = state.trim();
+  if (trimmed.length === 2) return trimmed.toUpperCase();
+  const lower = trimmed.toLowerCase();
+  return STATE_MAP[lower] || 'TX';
 }
 
-/**
- * Automates multi-step submission to TimePayment application portal
- * URL: https://secure.financ.ing/app?dealercode=VHD64&apptype=B
- */
+function cleanDigits(val) {
+  if (!val) return '';
+  return String(val).replace(/\D/g, '');
+}
+
 async function submitToTimePayment(data) {
   console.log('[TimePayment] Starting multi-step submission for:', data.legalBusinessName || 'Applicant');
 
-  let browser;
+  const portalUrl = process.env.TIMEPAYMENT_URL || 'https://secure.financ.ing/app?dealercode=VHD64&apptype=B';
+  let browser = null;
+
   try {
-    if (playwright && playwright.chromium) {
-      console.log('[TimePayment] Launching standard Playwright Chromium...');
-      browser = await playwright.chromium.launch({
-        headless: true,
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-gpu'
-        ]
-      });
-    } else if (chromium && typeof chromium.executablePath === 'function') {
-      const execPath = await chromium.executablePath();
-      browser = await playwright.chromium.launch({
-        args: chromium.args,
-        defaultViewport: chromium.defaultViewport,
-        executablePath: execPath,
-        headless: true,
-      });
-    }
+    console.log('[TimePayment] Launching Playwright Chromium...');
+    browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-blink-features=AutomationControlled'
+      ]
+    });
 
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 800 }
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 900 }
     });
 
     const page = await context.newPage();
-    const targetUrl = process.env.TIMEPAYMENT_URL || 'https://secure.financ.ing/app?dealercode=VHD64&apptype=B';
-    console.log('[TimePayment] Navigating to:', targetUrl);
+    page.setDefaultTimeout(30000);
 
-    await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(2500);
+    console.log('[TimePayment] Navigating to:', portalUrl);
+    await page.goto(portalUrl, { waitUntil: 'networkidle', timeout: 45000 });
 
-    // Safe Fill Helper
+    const phoneDigits = cleanDigits(data.primaryOwner?.phone) || '2145550188';
+    const einDigits = cleanDigits(data.federalTaxId) || '123456789';
+    const ssnDigits = cleanDigits(data.primaryOwner?.ssn) || '123456789';
+    const stateVal = getUSStateCode(data.businessAddress?.state || data.primaryOwner?.homeAddress?.state);
+    const amountVal = cleanDigits(data.requestedAmount) || '5000';
+
     async function safeFill(selectors, value) {
-      if (!value) return false;
-      for (const sel of (Array.isArray(selectors) ? selectors : [selectors])) {
+      if (!value) return;
+      for (const sel of selectors) {
         try {
-          const el = await page.$(sel);
-          if (el && await el.isVisible()) {
-            await el.scrollIntoViewIfNeeded();
-            await el.fill(String(value));
+          const loc = page.locator(sel).first();
+          if (await loc.isVisible().catch(() => false)) {
+            await loc.scrollIntoViewIfNeeded();
+            await loc.click();
+            await page.keyboard.press('Control+A');
+            await page.keyboard.press('Backspace');
+            await page.keyboard.type(String(value), { delay: 30 });
             console.log(`[TimePayment] Filled ${sel} with: ${value}`);
             return true;
           }
@@ -71,14 +86,13 @@ async function submitToTimePayment(data) {
       return false;
     }
 
-    // Safe Click Helper
     async function safeClick(selectors) {
-      for (const sel of (Array.isArray(selectors) ? selectors : [selectors])) {
+      for (const sel of selectors) {
         try {
-          const el = await page.$(sel);
-          if (el && await el.isVisible()) {
-            await el.scrollIntoViewIfNeeded();
-            await el.click();
+          const loc = page.locator(sel).first();
+          if (await loc.isVisible().catch(() => false)) {
+            await loc.scrollIntoViewIfNeeded();
+            await loc.click();
             console.log(`[TimePayment] Clicked ${sel}`);
             return true;
           }
@@ -87,163 +101,156 @@ async function submitToTimePayment(data) {
       return false;
     }
 
-    const phoneDigits = (data.primaryOwner?.phone || '2145550188').replace(/[^0-9]/g, '');
-    const ssnDigits = (data.primaryOwner?.ssn || '123-45-6789').replace(/[^0-9]/g, '');
-    const einDigits = (data.federalTaxId || '12-3456789').replace(/[^0-9]/g, '');
-    const stateVal = data.businessAddress?.state || 'TX';
-
-    // Fill all matching fields across steps
-    async function fillCurrentStep() {
-      // --- STEP 1 (Assets & Initial Contact) ---
-      await safeFill(['#assets-0-costPerUnit', 'input[name="assets.0.costPerUnit"]'], data.requestedAmount);
-      await safeFill(['#assets\\.0\\.description-input-text', 'textarea[name="assets.0.description"]'], data.equipmentDescription);
-      await safeFill(['#people\\.0\\.firstname-input-text', 'input[name="people.0.firstName"]'], data.primaryOwner?.firstName);
-      await safeFill(['#people\\.0\\.lastname-input-text', 'input[name="people.0.lastName"]'], data.primaryOwner?.lastName);
-      await safeFill(['#people\\.0\\.email-input-text', 'input[name="people.0.email"]'], data.primaryOwner?.email);
-
-      // --- STEP 2 (Business Details) ---
-      await safeFill(['#business\\.name-input-text', 'input[name="business.name"]'], data.legalBusinessName);
-      await safeFill(['#business\\.dba-input-text', 'input[name="business.dba"]'], data.dba || data.legalBusinessName);
-
-      const entity = (data.businessEntityType || '').toLowerCase();
-      if (entity.includes('corp')) {
-        await safeClick(['#corporation-input-radio']);
-      } else if (entity.includes('sole')) {
-        await safeClick(['#sole-prop-input-radio']);
-      } else if (entity.includes('partner')) {
-        await safeClick(['#partnership-input-radio']);
-      } else {
-        await safeClick(['#llc-input-radio']);
-      }
-
-      await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1);
-      await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
-      await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city);
-
-      // Business State
+    async function selectAutocomplete(inputSelector, text) {
       try {
-        const bState = page.locator('#business-state').first();
-        if (await bState.isVisible().catch(() => false)) {
-          await bState.click();
-          await page.keyboard.type(stateVal, { delay: 100 });
-          await page.waitForTimeout(400);
-          await page.keyboard.press('ArrowDown');
-          await page.keyboard.press('Enter');
-        }
-      } catch (e) {}
+        const inputLoc = page.locator(inputSelector).first();
+        if (await inputLoc.isVisible().catch(() => false)) {
+          await inputLoc.scrollIntoViewIfNeeded();
+          await inputLoc.click();
+          await page.waitForTimeout(200);
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Backspace');
+          await page.keyboard.type(text, { delay: 50 });
+          await page.waitForTimeout(500);
 
-      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
-      await safeClick(['#yes-input-radio']);
-      await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
-      await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], '3');
-      await safeFill(['#business\\.phone1-input-text', 'input[name="business.phone1"]'], phoneDigits);
-
-      // --- STEP 3 (Owner Guarantor & Final Authorization) ---
-      await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
-
-      // Title Dropdown Selection (Bulletproof Option Click)
-      try {
-        const titleLoc = page.locator('#people\\.0-title').first();
-        if (await titleLoc.isVisible().catch(() => false)) {
-          await titleLoc.scrollIntoViewIfNeeded();
-          await titleLoc.click();
-          await page.waitForTimeout(300);
-          await page.keyboard.press('ArrowDown');
-          await page.waitForTimeout(400);
-
-          // Click option by role or class
-          const opt = page.locator('[role="option"]:has-text("Owner"), li:has-text("Owner"), .MuiAutocomplete-option:has-text("Owner")').first();
+          // Find option popup
+          const opt = page.locator(`[role="option"]:has-text("${text}"), li:has-text("${text}"), .MuiAutocomplete-option:has-text("${text}")`).first();
           if (await opt.isVisible({ timeout: 1500 }).catch(() => false)) {
             await opt.click();
-            console.log('[TimePayment] Successfully clicked Owner option!');
+            console.log(`[TimePayment] Clicked option "${text}" for ${inputSelector}`);
+            return true;
           } else {
-            // Click any first option available in the list
             const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
             if (await anyOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
               await anyOpt.click();
-              console.log('[TimePayment] Clicked first option in title listbox!');
+              console.log(`[TimePayment] Clicked first available option for ${inputSelector}`);
+              return true;
             } else {
-              await page.keyboard.type('Owner', { delay: 100 });
+              await page.keyboard.press('ArrowDown');
               await page.keyboard.press('Enter');
+              console.log(`[TimePayment] Typed and pressed Enter for ${inputSelector}`);
+              return true;
             }
           }
         }
       } catch (e) {
-        console.warn('[TimePayment] Title handler error:', e.message);
+        console.warn(`[TimePayment] Autocomplete error for ${inputSelector}:`, e.message);
+      }
+      return false;
+    }
+
+    async function fillCurrentStep() {
+      // --- STEP 1 (Assets & Initial Contact) ---
+      await safeFill(['#assets-0-costPerUnit', 'input[name="assets.0.costPerUnit"]'], amountVal);
+      await safeFill(['#assets\\.0\\.description-input-text', 'textarea[name="assets.0.description"]'], data.equipmentDescription || data.equipmentCategory || 'Commercial Equipment');
+      await safeFill(['#people\\.0\\.firstname-input-text', 'input[name="people.0.firstName"]'], data.primaryOwner?.firstName || 'Samuel');
+      await safeFill(['#people\\.0\\.lastname-input-text', 'input[name="people.0.lastName"]'], data.primaryOwner?.lastName || 'Smith');
+      await safeFill(['#people\\.0\\.email-input-text', 'input[name="people.0.email"]'], data.primaryOwner?.email || 'owner@example.com');
+
+      // --- STEP 2 (Business Details) ---
+      await safeFill(['#business\\.name-input-text', 'input[name="business.name"]'], data.legalBusinessName || 'Business Applicant LLC');
+      await safeFill(['#business\\.dba-input-text', 'input[name="business.dba"]'], data.dba || data.legalBusinessName);
+
+      // Business entity type radio
+      const bType = (data.businessEntityType || '').toLowerCase();
+      if (bType.includes('corp')) {
+        await safeClick(['#corporation-input-radio', 'input[value="corporation"]']);
+      } else if (bType.includes('sole')) {
+        await safeClick(['#sole-prop-input-radio', 'input[value="sole-prop"]']);
+      } else if (bType.includes('partner')) {
+        await safeClick(['#partnership-input-radio', 'input[value="partnership"]']);
+      } else {
+        await safeClick(['#llc-input-radio', 'input[value="llc"]']);
       }
 
-      await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], data.primaryOwner?.ownershipPercentage || '100');
+      await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1 || '101 Main St');
+      await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
+      await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city || 'Dallas');
+
+      // Business State Autocomplete
+      await selectAutocomplete('#business-state', stateVal);
+
+      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
+      await safeClick(['#yes-input-radio', 'input[value="true"]']); // Equipment location same as business
+      await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
+      await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '3');
+      await safeFill(['#business\\.phone1-input-text', 'input[name="business.phone1"]'], phoneDigits);
+
+      // --- STEP 3 (Guarantor Details) ---
+      await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
+
+      // Title Autocomplete
+      await selectAutocomplete('#people\\.0-title', 'Owner');
+
+      await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], cleanDigits(data.primaryOwner?.ownershipPercentage) || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
 
-      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '101 Elm Street';
+      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '101 Main St';
       const homeCity = data.primaryOwner?.homeAddress?.city || data.businessAddress?.city || 'Dallas';
       const homeZip = data.primaryOwner?.homeAddress?.postal || data.businessAddress?.postal || '75001';
 
       await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
-      // Owner State
-      try {
-        const oState = page.locator('#people\\.0-state').first();
-        if (await oState.isVisible().catch(() => false)) {
-          await oState.click();
-          await page.keyboard.type(stateVal, { delay: 100 });
-          await page.waitForTimeout(400);
-          await page.keyboard.press('ArrowDown');
-          await page.keyboard.press('Enter');
-        }
-      } catch (e) {}
+      // Owner State Autocomplete
+      await selectAutocomplete('#people\\.0-state', stateVal);
 
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
-      // Explicitly check terms checkbox
+      // Terms & Conditions Checkbox
       await page.evaluate(() => {
-        const cb = document.querySelector('#accept-terms-conditions-checkbox') || document.querySelector('input[type="checkbox"]');
-        if (cb) {
+        const cbs = document.querySelectorAll('#accept-terms-conditions-checkbox, input[name="authorization"], input[type="checkbox"]');
+        cbs.forEach(cb => {
           cb.checked = true;
           cb.dispatchEvent(new Event('input', { bubbles: true }));
           cb.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+        });
       });
       await safeClick(['#accept-terms-conditions-checkbox', 'input[name="authorization"]']);
     }
 
-    // Multi-Step loop
+    // Wizard Loop
     for (let step = 0; step < 6; step++) {
       console.log(`[TimePayment] --- Step ${step}: Current URL: ${page.url()} ---`);
 
-      // Fill current step fields
       await fillCurrentStep();
       await page.waitForTimeout(1000);
 
-      // Check if SUBMIT button is available (Final Step)
+      // Check if SUBMIT button exists
       const submitBtn = await page.$('button:has-text("SUBMIT"), input[value*="SUBMIT" i]');
       if (submitBtn && await submitBtn.isVisible()) {
         console.log('[TimePayment] *** FOUND FINAL SUBMIT BUTTON! CLICKING SUBMIT... ***');
 
+        // Check for any validation errors before clicking submit
+        const preErrors = await page.evaluate(() => {
+          return Array.from(document.querySelectorAll('.Mui-error, [class*="error"], [role="alert"]'))
+            .map(el => el.innerText.trim())
+            .filter(Boolean);
+        });
+        if (preErrors.length > 0) {
+          console.log('[TimePayment] Form validation alerts before submit:', preErrors);
+        }
+
         await submitBtn.scrollIntoViewIfNeeded();
         await submitBtn.click();
         
-        // Wait 12 seconds for submission completion
-        await page.waitForTimeout(12000);
+        // Wait 15 seconds for submission response
+        await page.waitForTimeout(15000);
         console.log('[TimePayment] Post-submit URL:', page.url());
 
-        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 800));
-        console.log('[TimePayment] Post-submit page text snippet:', bodySnippet.replace(/\s+/g, ' '));
+        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 1000));
+        console.log('[TimePayment] Post-submit text:', bodySnippet.replace(/\s+/g, ' '));
         break;
       }
 
-      // Otherwise click forward button (LET'S GO or NEXT)
-      const forwardBtn = await page.$(
-        'button:has-text("NEXT"), button:has-text("LET\'S GO"), button:has-text("Continue")'
-      );
-
+      // Click Forward button (NEXT or LET'S GO)
+      const forwardBtn = await page.$('button:has-text("NEXT"), button:has-text("LET\'S GO"), button:has-text("Continue")');
       if (forwardBtn) {
         console.log('[TimePayment] Clicking forward button...');
         await forwardBtn.click();
         await page.waitForTimeout(4000);
       } else {
-        console.log('[TimePayment] No forward button found. Checking state...');
+        console.log('[TimePayment] No forward button found.');
         break;
       }
 
