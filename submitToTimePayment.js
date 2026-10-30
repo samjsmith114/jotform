@@ -28,7 +28,7 @@ async function submitToTimePayment(data) {
         args: chromium.args,
         defaultViewport: chromium.defaultViewport,
         executablePath: execPath,
-        headless: chromium.headless,
+        headless: true,
       });
     } else {
       // Local or standard environment
