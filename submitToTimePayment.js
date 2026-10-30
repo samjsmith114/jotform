@@ -52,7 +52,7 @@ async function submitToTimePayment(data) {
     console.log('[TimePayment] Navigating to:', targetUrl);
 
     await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
-    await page.waitForTimeout(2000);
+    await page.waitForTimeout(2500);
 
     // Safe Fill Helper
     async function safeFill(selectors, value) {
@@ -63,7 +63,7 @@ async function submitToTimePayment(data) {
           if (el && await el.isVisible()) {
             await el.scrollIntoViewIfNeeded();
             await el.fill(String(value));
-            console.log(`[TimePayment] Filled ${sel} with ${value}`);
+            console.log(`[TimePayment] Filled ${sel} with: ${value}`);
             return true;
           }
         } catch (e) {}
@@ -104,99 +104,101 @@ async function submitToTimePayment(data) {
       return false;
     }
 
-    // Fill function to run on every step
+    // Fill all matching fields on current step
     async function fillCurrentStep() {
-      // Log available visible inputs on this step
+      // 1. Exact step 0 known inputs
+      await safeFill(['input[name="assets.0.costPerUnit"]', '#assets-0-costPerUnit'], data.requestedAmount);
+      await safeFill(['textarea[name="assets.0.description"]', 'textarea[id*="description" i]'], data.equipmentDescription);
+      await safeFill(['input[name="people.0.firstName"]', '#people\\.0\\.firstname-input-text'], data.primaryOwner?.firstName);
+      await safeFill(['input[name="people.0.lastName"]', '#people\\.0\\.lastname-input-text'], data.primaryOwner?.lastName);
+      await safeFill(['input[name="people.0.email"]', '#people\\.0\\.email-input-text'], data.primaryOwner?.email);
+
+      // 2. Business details
+      await safeFill(['input[name*="legal" i]', 'input[name*="businessName" i]', 'input[id*="businessName" i]', 'input[placeholder*="Legal Name" i]'], data.legalBusinessName);
+      await safeFill(['input[name*="dba" i]', 'input[id*="dba" i]'], data.dba || data.legalBusinessName);
+      await safeFill(['input[name*="ein" i]', 'input[name*="tax" i]', 'input[id*="tax" i]'], data.federalTaxId);
+      await safeSelect(['select[name*="entity" i]', 'select[id*="entity" i]', 'select[name*="businessType" i]'], data.businessEntityType || 'LLC');
+      await safeFill(['input[name*="timeInBusiness" i]', 'input[name*="years" i]'], '3');
+
+      // 3. Contacts & SSN
+      await safeFill(['input[name*="phone" i]', 'input[name*="mobile" i]', 'input[type="tel"]:not([name*="cost" i])'], data.primaryOwner?.phone);
+      await safeFill(['input[name*="title" i]', 'input[placeholder*="Title" i]'], data.primaryOwner?.title || 'Owner');
+      await safeFill(['input[name*="ownership" i]', 'input[placeholder*="%" i]'], data.primaryOwner?.ownershipPercentage || '100');
+      await safeFill(['input[name*="ssn" i]', 'input[id*="ssn" i]'], data.primaryOwner?.ssn);
+
+      // 4. Addresses
+      await safeFill(['input[name*="address1" i]', 'input[name*="street" i]', 'input[name*="bizAddress" i]'], data.businessAddress?.line1);
+      await safeFill(['input[name*="city" i]', 'input[name*="bizCity" i]'], data.businessAddress?.city);
+      await safeSelect(['select[name*="state" i]', 'select[name*="bizState" i]'], data.businessAddress?.state);
+      await safeFill(['input[name*="zip" i]', 'input[name*="postal" i]', 'input[name*="bizZip" i]'], data.businessAddress?.postal);
+
+      // 5. Checkboxes
+      await safeCheck(['input[type="checkbox"]']);
+    }
+
+    // Step-by-step navigation loop (up to 7 steps)
+    for (let step = 0; step < 7; step++) {
+      console.log(`[TimePayment] --- Step ${step}: Current URL: ${page.url()} ---`);
+
+      // Introspect inputs on this step
       try {
         const inputs = await page.$$eval('input, select, textarea', els =>
           els.filter(e => e.offsetParent !== null).map(e => ({
             tag: e.tagName.toLowerCase(),
             name: e.name,
             id: e.id,
-            type: e.type,
-            placeholder: e.placeholder
+            type: e.type
           }))
         );
-        console.log(`[TimePayment] Step inputs count: ${inputs.length}`, JSON.stringify(inputs));
+        console.log(`[TimePayment] Step ${step} inputs:`, JSON.stringify(inputs));
       } catch (e) {}
 
-      // 1. Initial Contact / Owner Details
-      await safeFill(['input[name*="firstName" i]', 'input[id*="firstName" i]', 'input[placeholder*="First Name" i]'], data.primaryOwner?.firstName);
-      await safeFill(['input[name*="lastName" i]', 'input[id*="lastName" i]', 'input[placeholder*="Last Name" i]'], data.primaryOwner?.lastName);
-      await safeFill(['input[name*="phone" i]', 'input[type="tel"]'], data.primaryOwner?.phone || data.businessPhone);
-      await safeFill(['input[name*="email" i]', 'input[type="email"]'], data.primaryOwner?.email || data.businessEmail);
-      await safeFill(['input[name*="title" i]', 'input[placeholder*="Title" i]'], data.primaryOwner?.title || 'Owner');
-      await safeFill(['input[name*="ownership" i]', 'input[placeholder*="%" i]'], data.primaryOwner?.ownershipPercentage || '100');
-      await safeFill(['input[name*="ssn" i]', 'input[id*="ssn" i]', 'input[placeholder*="SSN" i]'], data.primaryOwner?.ssn);
-
-      // 2. Business Details
-      await safeFill(['input[name*="legal" i]', 'input[name*="businessName" i]', 'input[id*="businessName" i]', 'input[placeholder*="Legal Name" i]'], data.legalBusinessName);
-      await safeFill(['input[name*="dba" i]', 'input[id*="dba" i]', 'input[placeholder*="DBA" i]'], data.dba || data.legalBusinessName);
-      await safeFill(['input[name*="ein" i]', 'input[name*="tax" i]', 'input[id*="taxId" i]', 'input[placeholder*="EIN" i]'], data.federalTaxId);
-      await safeSelect(['select[name*="entity" i]', 'select[id*="entity" i]', 'select[name*="businessType" i]'], data.businessEntityType || 'LLC');
-      await safeFill(['input[name*="timeInBusiness" i]', 'input[name*="years" i]'], '3');
-
-      // Addresses (Business & Home)
-      await safeFill(['input[name*="address1" i]', 'input[name*="bizAddress" i]', 'input[name*="street" i]'], data.businessAddress?.line1);
-      await safeFill(['input[name*="city" i]', 'input[name*="bizCity" i]'], data.businessAddress?.city);
-      await safeSelect(['select[name*="state" i]', 'select[name*="bizState" i]'], data.businessAddress?.state);
-      await safeFill(['input[name*="zip" i]', 'input[name*="postal" i]', 'input[name*="bizZip" i]'], data.businessAddress?.postal);
-
-      // Home Address
-      await safeFill(['input[name*="homeAddress" i]', 'input[name*="ownerAddress" i]'], data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1);
-      await safeFill(['input[name*="homeCity" i]', 'input[name*="ownerCity" i]'], data.primaryOwner?.homeAddress?.city || data.businessAddress?.city);
-      await safeSelect(['select[name*="homeState" i]', 'select[name*="ownerState" i]'], data.primaryOwner?.homeAddress?.state || data.businessAddress?.state);
-      await safeFill(['input[name*="homeZip" i]', 'input[name*="ownerZip" i]'], data.primaryOwner?.homeAddress?.postal || data.businessAddress?.postal);
-
-      // 3. Equipment & Amount
-      await safeFill(['input[name*="amount" i]', 'input[id*="amount" i]', 'input[name*="cost" i]', 'input[placeholder*="amount" i]'], data.requestedAmount);
-      await safeFill(['textarea[name*="equip" i]', 'input[name*="equip" i]', 'textarea[id*="equip" i]'], data.equipmentDescription);
-
-      // 4. Terms Checkboxes
-      await safeCheck(['input[type="checkbox"][name*="agree" i]', 'input[type="checkbox"][id*="terms" i]', 'input[type="checkbox"][name*="warrant" i]', 'input[type="checkbox"]']);
-    }
-
-    // Step-by-step navigation loop (up to 6 steps)
-    for (let step = 0; step < 6; step++) {
-      console.log(`[TimePayment] --- Step ${step}: Current URL: ${page.url()} ---`);
-
+      // Fill current step fields
       await fillCurrentStep();
       await page.waitForTimeout(1000);
 
-      // Find the next or submit button
+      // Introspect clickable buttons
+      try {
+        const buttons = await page.$$eval('button, a.btn, input[type="submit"], [role="button"]', els =>
+          els.filter(e => e.offsetParent !== null).map(e => ({
+            tag: e.tagName.toLowerCase(),
+            text: (e.innerText || e.value || '').trim()
+          }))
+        );
+        console.log(`[TimePayment] Step ${step} buttons:`, JSON.stringify(buttons));
+      } catch (e) {}
+
+      // Click the next / submit button
       const nextBtn = await page.$(
-        'button[type="submit"], input[type="submit"], button:has-text("Continue"), button:has-text("Next"), button:has-text("Submit"), button:has-text("Apply")'
+        'button[type="submit"], button:has-text("Continue"), button:has-text("Next"), button:has-text("Submit"), button:has-text("Apply"), a:has-text("Continue"), a:has-text("Next")'
       );
 
       if (!nextBtn) {
-        console.log('[TimePayment] No further navigation button found. Wizard completed or final step reached.');
-        break;
-      }
-
-      const prevUrl = page.url();
-      console.log('[TimePayment] Clicking next/continue button...');
-      await nextBtn.click();
-      await page.waitForTimeout(3500);
-
-      const newUrl = page.url();
-      if (newUrl.toLowerCase().includes('confirm') || newUrl.toLowerCase().includes('thank') || newUrl.toLowerCase().includes('success')) {
-        console.log('[TimePayment] Final confirmation page reached!', newUrl);
-        break;
-      }
-
-      if (newUrl === prevUrl && step > 0) {
-        // Try clicking submit if button text changed
-        const finalSubmit = await page.$('button:has-text("Submit"), input[value*="Submit" i]');
-        if (finalSubmit) {
-          await finalSubmit.click();
-          await page.waitForTimeout(4000);
+        // Try any primary button
+        const anyBtn = await page.$('button.btn-primary, button:not([disabled])');
+        if (anyBtn) {
+          console.log('[TimePayment] Clicking fallback primary button...');
+          await anyBtn.click();
+          await page.waitForTimeout(3500);
+        } else {
+          console.log('[TimePayment] No further buttons found. Finished.');
+          break;
         }
+      } else {
+        console.log('[TimePayment] Clicking next button...');
+        await nextBtn.click();
+        await page.waitForTimeout(3500);
+      }
+
+      const currentUrl = page.url();
+      if (currentUrl.toLowerCase().includes('confirm') || currentUrl.toLowerCase().includes('thank') || currentUrl.toLowerCase().includes('success')) {
+        console.log('[TimePayment] Final Confirmation reached!', currentUrl);
         break;
       }
     }
 
     const finalUrl = page.url();
-    console.log('[TimePayment] Wizard finished at:', finalUrl);
+    console.log('[TimePayment] Submission flow completed at:', finalUrl);
 
     await browser.close();
     return {
