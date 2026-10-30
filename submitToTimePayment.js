@@ -62,25 +62,6 @@ async function submitToTimePayment(data) {
     const page = await context.newPage();
     page.setDefaultTimeout(30000);
 
-    // Track relevant network traffic and API responses
-    page.on('request', req => {
-      const u = req.url();
-      if (req.method() === 'POST' || u.includes('applications')) {
-        console.log(`[TimePayment Network] -> ${req.method()} ${u.substring(0, 120)}`);
-      }
-    });
-
-    page.on('response', async res => {
-      const u = res.url();
-      if (u.includes('applications')) {
-        console.log(`[TimePayment Network Response] <- [${res.status()}] ${u}`);
-        try {
-          const body = await res.text();
-          console.log(`[TimePayment API Response Body]:`, body);
-        } catch (e) {}
-      }
-    });
-
     console.log('[TimePayment] Navigating to:', portalUrl);
     await page.goto(portalUrl, { waitUntil: 'networkidle', timeout: 45000 });
 
@@ -141,6 +122,7 @@ async function submitToTimePayment(data) {
           if (await opt.isVisible({ timeout: 1500 }).catch(() => false)) {
             await opt.click();
             console.log(`[TimePayment] Clicked state option "${state}" for ${selectorId}`);
+            return;
           } else {
             const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
             if (await anyOpt.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -189,7 +171,7 @@ async function submitToTimePayment(data) {
       await selectState('business-state', stateName);
 
       await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
-      await safeClick(['#yes-input-radio', 'input[value="true"]']); // Equipment location same as business
+      await safeClick(['#yes-input-radio', 'input[value="true"]']);
       await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
       await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '3');
       await safeFill(['#business\\.phone1-input-text', 'input[name="business.phone1"]'], phoneDigits);
@@ -197,7 +179,7 @@ async function submitToTimePayment(data) {
       // --- STEP 3 (Guarantor Details) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
 
-      // Title Dropdown Selection (Managing Member for LLC)
+      // Title Dropdown Selection (Member / Managing Member)
       try {
         const titleLoc = page.locator('#people\\.0-title').first();
         if (await titleLoc.isVisible().catch(() => false)) {
@@ -207,13 +189,12 @@ async function submitToTimePayment(data) {
           await page.keyboard.press('ArrowDown');
           await page.waitForTimeout(400);
 
-          // Priority for LLC: Managing Member, Member, President
-          const preferredTitles = ['Managing Member', 'Member', 'President'];
+          const preferredTitles = ['Member', 'Managing Member', 'President', 'Owner'];
           let clicked = false;
 
           for (const t of preferredTitles) {
             const opt = page.locator(`[role="option"]:has-text("${t}"), li:has-text("${t}"), .MuiAutocomplete-option:has-text("${t}")`).first();
-            if (await opt.isVisible({ timeout: 500 }).catch(() => false)) {
+            if (await opt.isVisible({ timeout: 400 }).catch(() => false)) {
               await opt.click();
               console.log(`[TimePayment] Clicked valid Title option: "${t}"`);
               clicked = true;
@@ -223,11 +204,11 @@ async function submitToTimePayment(data) {
 
           if (!clicked) {
             const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
-            if (await anyOpt.isVisible({ timeout: 1000 }).catch(() => false)) {
+            if (await anyOpt.isVisible({ timeout: 800 }).catch(() => false)) {
               await anyOpt.click();
               console.log('[TimePayment] Clicked first available option in Title listbox');
             } else {
-              await page.keyboard.type('Managing Member', { delay: 60 });
+              await page.keyboard.type('Member', { delay: 60 });
               await page.keyboard.press('ArrowDown');
               await page.keyboard.press('Enter');
             }
@@ -261,7 +242,7 @@ async function submitToTimePayment(data) {
             console.log('[TimePayment] Clicked terms checkbox locator');
           }
         } else {
-          const cbLabel = page.locator('label:has(#accept-terms-conditions-checkbox), label:has-text("Terms")').first();
+          const cbLabel = page.locator('label:has(#accept-terms-conditions-checkbox), label:has-text("Terms"), label:has-text("Agree")').first();
           if (await cbLabel.isVisible().catch(() => false)) {
             await cbLabel.click();
             console.log('[TimePayment] Clicked terms label');
@@ -277,6 +258,8 @@ async function submitToTimePayment(data) {
       });
     }
 
+    let applicationNumber = null;
+
     // Wizard Loop
     for (let step = 0; step < 6; step++) {
       console.log(`[TimePayment] --- Step ${step}: Current URL: ${page.url()} ---`);
@@ -289,32 +272,23 @@ async function submitToTimePayment(data) {
       if (submitBtn && await submitBtn.isVisible()) {
         console.log('[TimePayment] *** FOUND FINAL SUBMIT BUTTON! ***');
 
-        // Detailed Form State and Error Check
-        const formState = await page.evaluate(() => {
-          const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim().toUpperCase().includes('SUBMIT'));
-          const errors = Array.from(document.querySelectorAll('.Mui-error, [class*="error"], [role="alert"]')).map(e => e.innerText.trim()).filter(Boolean);
-          const stateEls = Array.from(document.querySelectorAll('[id*="state"]')).map(s => ({ id: s.id, val: s.value }));
-          const titleEl = document.querySelector('#people\\.0-title');
-          return {
-            buttonFound: !!btn,
-            buttonDisabled: btn ? btn.disabled : false,
-            titleValue: titleEl ? titleEl.value : null,
-            errors,
-            states: stateEls
-          };
-        });
-        console.log('[TimePayment Form State Before Submit]:', JSON.stringify(formState));
-
         await submitBtn.scrollIntoViewIfNeeded();
         await submitBtn.click({ force: true });
         console.log('[TimePayment] Clicked submit button!');
         
-        // Wait 15 seconds for submission response
-        await page.waitForTimeout(15000);
+        // Wait up to 15 seconds for confirmation screen
+        await page.waitForTimeout(12000);
         console.log('[TimePayment] Post-submit URL:', page.url());
 
-        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 1000));
+        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 1500));
         console.log('[TimePayment] Post-submit text:', bodySnippet.replace(/\s+/g, ' '));
+
+        // Extract application number
+        const match = bodySnippet.match(/application number is\s*(\d+)/i) || bodySnippet.match(/(\d{8})/);
+        if (match) {
+          applicationNumber = match[1];
+          console.log(`🎉 [TimePayment] Extracted Application Number: ${applicationNumber}`);
+        }
         break;
       }
 
@@ -342,6 +316,7 @@ async function submitToTimePayment(data) {
     await browser.close();
     return {
       success: true,
+      applicationNumber,
       finalUrl
     };
 
