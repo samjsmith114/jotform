@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const nodemailer = require('nodemailer');
+const { timePaymentApi } = require('./timepaymentApi');
 const { submitToTimePayment } = require('./submitToTimePayment');
 
 const app = express();
@@ -34,6 +35,7 @@ app.get('/', (req, res) => {
   res.json({
     status: 'online',
     service: 'Emergency Fund Man -> TimePayment Webhook Integration',
+    mode: 'REST API + Headless Fallback',
     dealer: 'VHD64 (Amiri Partners LLC)',
     timestamp: new Date().toISOString()
   });
@@ -110,12 +112,43 @@ function parseJotformPayload(body) {
   };
 }
 
+async function sendNotificationEmail(parsedData, result) {
+  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) return;
+
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: parseInt(process.env.SMTP_PORT || '587'),
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS
+      }
+    });
+
+    const appNum = result.applicationNumber ? `\nApplication #: ${result.applicationNumber}` : '';
+    const statusText = result.success ? `SUCCESS (App #${result.applicationNumber || 'Approved'})` : `FAILED - ${result.error}`;
+
+    await transporter.sendMail({
+      from: `"Emergency Fund Man" <${process.env.SMTP_USER}>`,
+      to: NOTIFY_EMAIL,
+      subject: `New Financing App: ${parsedData.legalBusinessName || 'New Applicant'} (${result.success ? 'SUBMITTED' : 'FAILED'})`,
+      text: `Financing Application Processed!\n\nBusiness: ${parsedData.legalBusinessName}\nOwner: ${parsedData.primaryOwner.firstName} ${parsedData.primaryOwner.lastName}\nAmount: $${parsedData.requestedAmount}\nStatus: ${statusText}${appNum}`
+    });
+    console.log(`[Email] Notification sent to ${NOTIFY_EMAIL}`);
+  } catch (mailErr) {
+    console.warn('[Email Warning]:', mailErr.message);
+  }
+}
+
 // Webhook endpoint for Jotform
 app.post('/webhook', async (req, res) => {
   console.log('--- [Jotform Webhook Received] ---');
 
   try {
     const parsedData = parseJotformPayload(req.body);
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress || '127.0.0.1';
+
     console.log('Parsed Submission Data:', {
       business: parsedData.legalBusinessName,
       amount: parsedData.requestedAmount,
@@ -126,37 +159,27 @@ app.post('/webhook', async (req, res) => {
     // Send HTTP 200 immediately to Jotform so webhook acknowledges success
     res.status(200).json({ received: true, message: 'Processing application' });
 
-    // Execute submission to TimePayment asynchronously
-    submitToTimePayment(parsedData).then(async (result) => {
-      console.log('[TimePayment Result]:', result);
-
-      // Email notification to client if configured
-      if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+    // 1. Try Direct REST API Submission (Instant & Official)
+    (async () => {
+      try {
+        console.log('[TimePayment] Attempting direct REST API submission...');
+        const apiResult = await timePaymentApi.submitApplication(parsedData, clientIp);
+        console.log('[TimePayment REST API Success]:', apiResult);
+        await sendNotificationEmail(parsedData, apiResult);
+      } catch (apiErr) {
+        console.warn('[TimePayment REST API Failed, falling back to Playwright Automation]:', apiErr.message);
+        
+        // 2. Headless Browser Automation Fallback
         try {
-          const transporter = nodemailer.createTransport({
-            host: process.env.SMTP_HOST || 'smtp.gmail.com',
-            port: parseInt(process.env.SMTP_PORT || '587'),
-            secure: false,
-            auth: {
-              user: process.env.SMTP_USER,
-              pass: process.env.SMTP_PASS
-            }
-          });
-
-          await transporter.sendMail({
-            from: `"Application Automation" <${process.env.SMTP_USER}>`,
-            to: NOTIFY_EMAIL,
-            subject: `New Financing App Submitted: ${parsedData.legalBusinessName || 'New Applicant'}`,
-            text: `A new application has been submitted to TimePayment!\n\nBusiness: ${parsedData.legalBusinessName}\nAmount: $${parsedData.requestedAmount}\nOwner: ${parsedData.primaryOwner.firstName} ${parsedData.primaryOwner.lastName}\nStatus: ${result.success ? 'SUBMITTED' : 'FAILED - ' + result.error}`
-          });
-          console.log(`[Email] Notification sent to ${NOTIFY_EMAIL}`);
-        } catch (mailErr) {
-          console.warn('[Email Warning]:', mailErr.message);
+          const browserResult = await submitToTimePayment(parsedData);
+          console.log('[TimePayment Playwright Fallback Result]:', browserResult);
+          await sendNotificationEmail(parsedData, browserResult);
+        } catch (browserErr) {
+          console.error('[TimePayment All Methods Failed]:', browserErr.message);
+          await sendNotificationEmail(parsedData, { success: false, error: browserErr.message });
         }
       }
-    }).catch((err) => {
-      console.error('[TimePayment Async Error]:', err);
-    });
+    })();
 
   } catch (err) {
     console.error('Webhook processing error:', err);
