@@ -1,14 +1,14 @@
-let chromium;
 let playwright;
+let chromium;
 
 try {
-  chromium = require('@sparticuz/chromium');
-  playwright = require('playwright-core');
+  playwright = require('playwright');
 } catch (e) {
   try {
-    playwright = require('playwright');
+    playwright = require('playwright-core');
+    chromium = require('@sparticuz/chromium');
   } catch (err) {
-    console.warn('Playwright fallback mode');
+    console.warn('Playwright load warning:', err.message);
   }
 }
 
@@ -17,24 +17,28 @@ try {
  * URL: https://secure.financ.ing/app?dealercode=VHD64&apptype=B
  */
 async function submitToTimePayment(data) {
-  console.log('[TimePayment] Starting submission for:', data.legalBusinessName || data.businessName);
+  console.log('[TimePayment] Starting submission for:', data.legalBusinessName || 'Applicant');
 
   let browser;
   try {
-    if (chromium && typeof chromium.executablePath === 'function') {
-      // Vercel Serverless environment
+    if (playwright && playwright.chromium) {
+      console.log('[TimePayment] Launching standard Playwright Chromium...');
+      browser = await playwright.chromium.launch({
+        headless: true,
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu'
+        ]
+      });
+    } else if (chromium && typeof chromium.executablePath === 'function') {
       const execPath = await chromium.executablePath();
       browser = await playwright.chromium.launch({
         args: chromium.args,
         defaultViewport: chromium.defaultViewport,
         executablePath: execPath,
         headless: true,
-      });
-    } else {
-      // Local or standard environment
-      browser = await playwright.chromium.launch({
-        headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
     }
 
@@ -139,12 +143,12 @@ async function submitToTimePayment(data) {
     await page.waitForTimeout(1000);
 
     // 5. Submit Application
-    console.log('[TimePayment] Clicking submit button...');
+    console.log('[TimePayment] Submitting application...');
     const submitBtn = await page.$('button[type="submit"], input[type="submit"], button:has-text("Submit"), button:has-text("Apply")');
 
     if (submitBtn) {
       await submitBtn.click();
-      console.log('[TimePayment] Submitted successfully!');
+      console.log('[TimePayment] Application submitted successfully!');
       await page.waitForTimeout(3000);
     }
 
@@ -157,7 +161,7 @@ async function submitToTimePayment(data) {
     };
 
   } catch (error) {
-    console.error('[TimePayment] Submission error:', error.message);
+    console.error('[TimePayment] Execution error:', error.message);
     if (browser) await browser.close().catch(() => {});
     return {
       success: false,
