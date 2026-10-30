@@ -87,35 +87,6 @@ async function submitToTimePayment(data) {
       return false;
     }
 
-    // Reliable Autocomplete Select Helper (Uses page.keyboard)
-    async function selectAutocomplete(selector, text, optionFallback) {
-      try {
-        const loc = page.locator(selector).first();
-        if (await loc.isVisible()) {
-          await loc.scrollIntoViewIfNeeded();
-          await loc.click();
-          await page.waitForTimeout(300);
-          await page.keyboard.type(text, { delay: 100 });
-          await page.waitForTimeout(600);
-          await page.keyboard.press('ArrowDown');
-          await page.waitForTimeout(200);
-          await page.keyboard.press('Enter');
-
-          // Try clicking matching option from listbox if open
-          const opt = page.locator(`[role="option"]:has-text("${optionFallback || text}"), li:has-text("${optionFallback || text}")`).first();
-          if (await opt.isVisible().catch(() => false)) {
-            await opt.click().catch(() => {});
-            console.log(`[TimePayment] Clicked dropdown item: ${optionFallback || text}`);
-          }
-          console.log(`[TimePayment] Selected ${text} in ${selector}`);
-          return true;
-        }
-      } catch (e) {
-        console.warn(`[TimePayment] Autocomplete warning for ${selector}:`, e.message);
-      }
-      return false;
-    }
-
     const phoneDigits = (data.primaryOwner?.phone || '2145550188').replace(/[^0-9]/g, '');
     const ssnDigits = (data.primaryOwner?.ssn || '123-45-6789').replace(/[^0-9]/g, '');
     const einDigits = (data.federalTaxId || '12-3456789').replace(/[^0-9]/g, '');
@@ -149,9 +120,19 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city);
 
-      await selectAutocomplete('#business-state', stateVal, 'Texas');
-      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
+      // Business State
+      try {
+        const bState = page.locator('#business-state').first();
+        if (await bState.isVisible().catch(() => false)) {
+          await bState.click();
+          await page.keyboard.type(stateVal, { delay: 100 });
+          await page.waitForTimeout(400);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+        }
+      } catch (e) {}
 
+      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
       await safeClick(['#yes-input-radio']);
       await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
       await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], '3');
@@ -160,8 +141,36 @@ async function submitToTimePayment(data) {
       // --- STEP 3 (Owner Guarantor & Final Authorization) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
 
-      // Select Title using keyboard
-      await selectAutocomplete('#people\\.0-title', 'Owner');
+      // Title Dropdown Selection (Bulletproof Option Click)
+      try {
+        const titleLoc = page.locator('#people\\.0-title').first();
+        if (await titleLoc.isVisible().catch(() => false)) {
+          await titleLoc.scrollIntoViewIfNeeded();
+          await titleLoc.click();
+          await page.waitForTimeout(300);
+          await page.keyboard.press('ArrowDown');
+          await page.waitForTimeout(400);
+
+          // Click option by role or class
+          const opt = page.locator('[role="option"]:has-text("Owner"), li:has-text("Owner"), .MuiAutocomplete-option:has-text("Owner")').first();
+          if (await opt.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await opt.click();
+            console.log('[TimePayment] Successfully clicked Owner option!');
+          } else {
+            // Click any first option available in the list
+            const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
+            if (await anyOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
+              await anyOpt.click();
+              console.log('[TimePayment] Clicked first option in title listbox!');
+            } else {
+              await page.keyboard.type('Owner', { delay: 100 });
+              await page.keyboard.press('Enter');
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[TimePayment] Title handler error:', e.message);
+      }
 
       await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], data.primaryOwner?.ownershipPercentage || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
@@ -173,7 +182,18 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
-      await selectAutocomplete('#people\\.0-state', stateVal, 'Texas');
+      // Owner State
+      try {
+        const oState = page.locator('#people\\.0-state').first();
+        if (await oState.isVisible().catch(() => false)) {
+          await oState.click();
+          await page.keyboard.type(stateVal, { delay: 100 });
+          await page.waitForTimeout(400);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+        }
+      } catch (e) {}
+
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
       // Explicitly check terms checkbox
