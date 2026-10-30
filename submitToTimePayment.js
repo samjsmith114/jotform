@@ -58,18 +58,22 @@ async function submitToTimePayment(data) {
     const page = await context.newPage();
     page.setDefaultTimeout(30000);
 
-    // Track relevant network traffic
+    // Track relevant network traffic and capture response bodies
     page.on('request', req => {
       const u = req.url();
-      if (req.method() === 'POST' || u.includes('app') || u.includes('dealer')) {
+      if (req.method() === 'POST' || u.includes('applications')) {
         console.log(`[TimePayment Network] -> ${req.method()} ${u.substring(0, 120)}`);
       }
     });
 
-    page.on('response', res => {
+    page.on('response', async res => {
       const u = res.url();
-      if (res.status() >= 400 || (res.request().method() === 'POST' && u.includes('secure.financ.ing'))) {
-        console.log(`[TimePayment Network Response] <- [${res.status()}] ${u.substring(0, 120)}`);
+      if (u.includes('applications') || (res.status() >= 400 && u.includes('timepayment'))) {
+        console.log(`[TimePayment Network Response] <- [${res.status()}] ${u}`);
+        try {
+          const body = await res.text();
+          console.log(`[TimePayment Network API Body]:`, body);
+        } catch (e) {}
       }
     });
 
@@ -116,6 +120,45 @@ async function submitToTimePayment(data) {
       return false;
     }
 
+    async function selectState(selectorId, state) {
+      try {
+        const sel = `#${selectorId.replace('.', '\\.')}`;
+        const input = page.locator(sel).first();
+        if (await input.isVisible().catch(() => false)) {
+          await input.scrollIntoViewIfNeeded();
+          await input.click();
+          await page.waitForTimeout(200);
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Backspace');
+          await page.keyboard.type(state, { delay: 60 });
+          await page.waitForTimeout(400);
+
+          const opt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
+          if (await opt.isVisible({ timeout: 1200 }).catch(() => false)) {
+            await opt.click();
+            console.log(`[TimePayment] Clicked state option for ${selectorId}: ${state}`);
+            return;
+          } else {
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Enter');
+            console.log(`[TimePayment] Pressed ArrowDown+Enter for state ${selectorId}: ${state}`);
+          }
+        } else {
+          // If not visible directly, set via JS evaluate
+          await page.evaluate(({ id, val }) => {
+            const el = document.getElementById(id);
+            if (el) {
+              el.value = val;
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          }, { id: selectorId, val: state });
+        }
+      } catch (err) {
+        console.warn(`[TimePayment] State selection warning for ${selectorId}:`, err.message);
+      }
+    }
+
     async function fillCurrentStep() {
       // --- STEP 1 (Assets & Initial Contact) ---
       await safeFill(['#assets-0-costPerUnit', 'input[name="assets.0.costPerUnit"]'], amountVal);
@@ -140,36 +183,17 @@ async function submitToTimePayment(data) {
         await safeClick(['#llc-input-radio', 'input[value="llc"]']);
       }
 
-      await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1 || '101 Main St');
+      await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1 || '200 Logistics Blvd');
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city || 'Dallas');
 
-      // Business State Autocomplete
-      try {
-        const bState = page.locator('#business-state').first();
-        if (await bState.isVisible().catch(() => false)) {
-          await bState.scrollIntoViewIfNeeded();
-          await bState.click();
-          await page.waitForTimeout(200);
-          await page.keyboard.press('Control+A');
-          await page.keyboard.press('Backspace');
-          await page.keyboard.type(stateVal, { delay: 60 });
-          await page.waitForTimeout(400);
-          const stateOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
-          if (await stateOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await stateOpt.click();
-            console.log(`[TimePayment] Clicked business state option for: ${stateVal}`);
-          } else {
-            await page.keyboard.press('ArrowDown');
-            await page.keyboard.press('Enter');
-          }
-        }
-      } catch (e) {}
+      // Business State
+      await selectState('business-state', stateVal);
 
       await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
       await safeClick(['#yes-input-radio', 'input[value="true"]']); // Equipment location same as business
       await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
-      await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '3');
+      await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '4');
       await safeFill(['#business\\.phone1-input-text', 'input[name="business.phone1"]'], phoneDigits);
 
       // --- STEP 3 (Guarantor Details) ---
@@ -207,34 +231,15 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], cleanDigits(data.primaryOwner?.ownershipPercentage) || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
 
-      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '101 Main St';
+      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '200 Logistics Blvd';
       const homeCity = data.primaryOwner?.homeAddress?.city || data.businessAddress?.city || 'Dallas';
       const homeZip = data.primaryOwner?.homeAddress?.postal || data.businessAddress?.postal || '75001';
 
       await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
-      // Owner State Autocomplete
-      try {
-        const oState = page.locator('#people\\.0-state').first();
-        if (await oState.isVisible().catch(() => false)) {
-          await oState.scrollIntoViewIfNeeded();
-          await oState.click();
-          await page.waitForTimeout(200);
-          await page.keyboard.press('Control+A');
-          await page.keyboard.press('Backspace');
-          await page.keyboard.type(stateVal, { delay: 60 });
-          await page.waitForTimeout(400);
-          const stateOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
-          if (await stateOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await stateOpt.click();
-            console.log(`[TimePayment] Clicked owner state option for: ${stateVal}`);
-          } else {
-            await page.keyboard.press('ArrowDown');
-            await page.keyboard.press('Enter');
-          }
-        }
-      } catch (e) {}
+      // Owner State
+      await selectState('people.0-state', stateVal);
 
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
@@ -279,10 +284,12 @@ async function submitToTimePayment(data) {
         const formState = await page.evaluate(() => {
           const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim().toUpperCase() === 'SUBMIT');
           const errors = Array.from(document.querySelectorAll('.Mui-error, [class*="error"], [role="alert"]')).map(e => e.innerText.trim()).filter(Boolean);
+          const stateEls = Array.from(document.querySelectorAll('[id*="state"]')).map(s => ({ id: s.id, val: s.value }));
           return {
             buttonFound: !!btn,
             buttonDisabled: btn ? btn.disabled : false,
-            errors
+            errors,
+            states: stateEls
           };
         });
         console.log('[TimePayment Form State Before Submit]:', JSON.stringify(formState));
