@@ -119,9 +119,20 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1);
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city);
-      await safeFill(['#business-state', 'input[id="business-state"]'], stateVal);
-      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
 
+      // Business State
+      try {
+        const bState = await page.$('#business-state');
+        if (bState && await bState.isVisible()) {
+          await bState.click();
+          await bState.fill(stateVal);
+          await page.waitForTimeout(300);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+        }
+      } catch (e) {}
+
+      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
       await safeClick(['#yes-input-radio']);
       await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
       await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], '3');
@@ -129,7 +140,27 @@ async function submitToTimePayment(data) {
 
       // --- STEP 3 (Owner Guarantor & Final Authorization) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
-      await safeFill(['#people\\.0-title', 'input[id="people.0-title"]'], data.primaryOwner?.title || 'Owner');
+
+      // Owner Title (Autocomplete dropdown handling)
+      try {
+        const titleInput = await page.$('#people\\.0-title');
+        if (titleInput && await titleInput.isVisible()) {
+          await titleInput.scrollIntoViewIfNeeded();
+          await titleInput.click();
+          await titleInput.fill('Owner');
+          await page.waitForTimeout(400);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+
+          // If option list exists, click Owner item
+          const opt = await page.$('[role="option"]:has-text("Owner"), li:has-text("Owner"), .MuiAutocomplete-option:has-text("Owner")');
+          if (opt) {
+            await opt.click();
+            console.log('[TimePayment] Selected Owner from title dropdown');
+          }
+        }
+      } catch (e) {}
+
       await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], data.primaryOwner?.ownershipPercentage || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
 
@@ -139,10 +170,22 @@ async function submitToTimePayment(data) {
 
       await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
-      await safeFill(['#people\\.0-state', 'input[id="people.0-state"]'], stateVal);
+
+      // Owner State
+      try {
+        const oState = await page.$('#people\\.0-state');
+        if (oState && await oState.isVisible()) {
+          await oState.click();
+          await oState.fill(stateVal);
+          await page.waitForTimeout(300);
+          await page.keyboard.press('ArrowDown');
+          await page.keyboard.press('Enter');
+        }
+      } catch (e) {}
+
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
-      // Explicitly check terms checkbox via DOM event and click
+      // Explicitly check terms checkbox
       await page.evaluate(() => {
         const cb = document.querySelector('#accept-terms-conditions-checkbox') || document.querySelector('input[type="checkbox"]');
         if (cb) {
@@ -169,20 +212,12 @@ async function submitToTimePayment(data) {
         await submitBtn.scrollIntoViewIfNeeded();
         await submitBtn.click();
         
-        // Wait up to 10 seconds for API submission and check page content
-        await page.waitForTimeout(8000);
+        // Wait 10 seconds for submission completion
+        await page.waitForTimeout(10000);
         console.log('[TimePayment] Post-submit URL:', page.url());
 
-        // Check for any validation error messages on page
-        const pageErrors = await page.$$eval('.error, .invalid-feedback, [role="alert"], .text-danger, .has-error', els =>
-          els.map(e => e.innerText?.trim()).filter(Boolean)
-        );
-        if (pageErrors.length > 0) {
-          console.warn('[TimePayment] Validation alerts found on page:', JSON.stringify(pageErrors));
-        }
-
-        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 600));
-        console.log('[TimePayment] Post-submit page text snippet:', bodySnippet.replace(/\n+/g, ' '));
+        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 700));
+        console.log('[TimePayment] Post-submit page text snippet:', bodySnippet.replace(/\s+/g, ' '));
         break;
       }
 
@@ -197,6 +232,12 @@ async function submitToTimePayment(data) {
         await page.waitForTimeout(4000);
       } else {
         console.log('[TimePayment] No forward button found. Checking state...');
+        break;
+      }
+
+      const currentUrl = page.url();
+      if (currentUrl.toLowerCase().includes('confirm') || currentUrl.toLowerCase().includes('thank') || currentUrl.toLowerCase().includes('success')) {
+        console.log('[TimePayment] Final Confirmation reached!', currentUrl);
         break;
       }
     }
