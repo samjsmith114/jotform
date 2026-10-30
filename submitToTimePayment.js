@@ -87,31 +87,31 @@ async function submitToTimePayment(data) {
       return false;
     }
 
-    // Select Autocomplete option helper
-    async function selectAutocomplete(inputSelector, text) {
+    // Reliable Autocomplete Select Helper (Uses page.keyboard)
+    async function selectAutocomplete(selector, text, optionFallback) {
       try {
-        const input = await page.$(inputSelector);
-        if (input && await input.isVisible()) {
-          await input.scrollIntoViewIfNeeded();
-          await input.click();
+        const loc = page.locator(selector).first();
+        if (await loc.isVisible()) {
+          await loc.scrollIntoViewIfNeeded();
+          await loc.click();
           await page.waitForTimeout(300);
-          await input.pressSequentially(text, { delay: 120 });
+          await page.keyboard.type(text, { delay: 100 });
           await page.waitForTimeout(600);
           await page.keyboard.press('ArrowDown');
           await page.waitForTimeout(200);
           await page.keyboard.press('Enter');
 
-          // Try clicking any rendered option
-          const option = await page.$(`[role="option"]:has-text("${text}"), li:has-text("${text}"), .MuiAutocomplete-option:has-text("${text}")`);
-          if (option) {
-            await option.click();
-            console.log(`[TimePayment] Clicked dropdown option: ${text}`);
+          // Try clicking matching option from listbox if open
+          const opt = page.locator(`[role="option"]:has-text("${optionFallback || text}"), li:has-text("${optionFallback || text}")`).first();
+          if (await opt.isVisible().catch(() => false)) {
+            await opt.click().catch(() => {});
+            console.log(`[TimePayment] Clicked dropdown item: ${optionFallback || text}`);
           }
-          console.log(`[TimePayment] Typed and selected ${text} in ${inputSelector}`);
+          console.log(`[TimePayment] Selected ${text} in ${selector}`);
           return true;
         }
       } catch (e) {
-        console.warn(`[TimePayment] Failed autocomplete for ${inputSelector}:`, e.message);
+        console.warn(`[TimePayment] Autocomplete warning for ${selector}:`, e.message);
       }
       return false;
     }
@@ -149,7 +149,7 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city);
 
-      await selectAutocomplete('#business-state', stateVal);
+      await selectAutocomplete('#business-state', stateVal, 'Texas');
       await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
 
       await safeClick(['#yes-input-radio']);
@@ -160,19 +160,8 @@ async function submitToTimePayment(data) {
       // --- STEP 3 (Owner Guarantor & Final Authorization) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
 
-      // Select Title using sequential keystrokes
+      // Select Title using keyboard
       await selectAutocomplete('#people\\.0-title', 'Owner');
-
-      // Check if Title parent has a dropdown arrow button
-      try {
-        const titleArrow = await page.$('#people\\.0-title ~ button, #people\\.0-title + div button');
-        if (titleArrow) {
-          await titleArrow.click();
-          await page.waitForTimeout(300);
-          const opt = await page.$('li:has-text("Owner"), div[role="option"]:has-text("Owner")');
-          if (opt) await opt.click();
-        }
-      } catch (e) {}
 
       await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], data.primaryOwner?.ownershipPercentage || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
@@ -184,7 +173,7 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
-      await selectAutocomplete('#people\\.0-state', stateVal);
+      await selectAutocomplete('#people\\.0-state', stateVal, 'Texas');
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
       // Explicitly check terms checkbox
@@ -211,13 +200,6 @@ async function submitToTimePayment(data) {
       const submitBtn = await page.$('button:has-text("SUBMIT"), input[value*="SUBMIT" i]');
       if (submitBtn && await submitBtn.isVisible()) {
         console.log('[TimePayment] *** FOUND FINAL SUBMIT BUTTON! CLICKING SUBMIT... ***');
-
-        // Log parent HTML of title for debug
-        const titleDebug = await page.evaluate(() => {
-          const t = document.querySelector('#people\\.0-title');
-          return t ? t.parentElement.innerHTML : 'No title el';
-        });
-        console.log('[TimePayment] Title HTML:', titleDebug);
 
         await submitBtn.scrollIntoViewIfNeeded();
         await submitBtn.click();
