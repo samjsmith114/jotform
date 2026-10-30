@@ -39,6 +39,14 @@ function mapBusinessType(entityType) {
   return 'L'; // Default LLC
 }
 
+function mapTitle(entityType) {
+  const bType = mapBusinessType(entityType);
+  if (bType === 'L') return 'Managing Member';
+  if (bType === 'C') return 'President';
+  if (bType === 'P') return 'Partner';
+  return 'Owner';
+}
+
 class TimePaymentApiClient {
   constructor() {
     this.baseUrl = process.env.TIMEPAYMENT_API_URL || 'https://api.timepayment.com/dealer';
@@ -54,7 +62,6 @@ class TimePaymentApiClient {
    * Authenticate and get Bearer token via OAuth 2.0 Password grant
    */
   async getAccessToken() {
-    // Reuse token if valid (with 5 min safety buffer)
     if (this.token && Date.now() < this.tokenExpiresAt - 300000) {
       return this.token;
     }
@@ -85,23 +92,6 @@ class TimePaymentApiClient {
     this.token = data.access_token;
     this.tokenExpiresAt = Date.now() + ((data.expires_in || 3600) * 1000);
     console.log('[TimePayment API] Authentication successful! Token acquired.');
-
-    // Quick Dealer profile check for diagnostic logging
-    try {
-      console.log(`[TimePayment API] Verifying dealer code permissions: ${this.dealerCode}`);
-      const profRes = await fetch(`${this.baseUrl}/v1/dealers/${this.dealerCode}/profile`, {
-        headers: {
-          'Authorization': `Bearer ${this.token}`,
-          'Accept': 'application/json',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-        }
-      });
-      const profText = await profRes.text();
-      console.log(`[TimePayment API] Dealer profile status [${profRes.status}]:`, profText);
-    } catch (profErr) {
-      console.warn('[TimePayment API] Profile check warning:', profErr.message);
-    }
-
     return this.token;
   }
 
@@ -111,7 +101,6 @@ class TimePaymentApiClient {
   async submitApplication(formData, clientIp = '127.0.0.1') {
     const token = await this.getAccessToken();
 
-    // Prepare cleaned fields
     const businessState = normalizeState(formData.businessAddress?.state);
     const ownerState = normalizeState(formData.primaryOwner?.homeAddress?.state || formData.businessAddress?.state);
 
@@ -124,7 +113,9 @@ class TimePaymentApiClient {
     let timeInBusiness = cleanDigits(formData.timeInBusiness) || '3';
     if (timeInBusiness === '0' || !timeInBusiness) timeInBusiness = '3';
 
-    // Construct TimePayment Dealer API JSON payload per docs
+    const bType = mapBusinessType(formData.businessEntityType);
+    const officialTitle = mapTitle(formData.businessEntityType);
+
     const payload = {
       dealer: {
         code: this.dealerCode
@@ -132,7 +123,7 @@ class TimePaymentApiClient {
       type: 'B',
       business: {
         name: formData.legalBusinessName || 'Business Applicant LLC',
-        address1: formData.businessAddress?.line1 || '101 Main St',
+        address1: formData.businessAddress?.line1 || '100 Innovation Way',
         city: formData.businessAddress?.city || 'Dallas',
         state: businessState,
         zip: cleanDigits(formData.businessAddress?.postal) || '75001',
@@ -140,7 +131,7 @@ class TimePaymentApiClient {
         email: formData.primaryOwner?.email || 'owner@example.com',
         timeInBusiness: String(timeInBusiness),
         timeInBusinessUnits: 'years',
-        type: mapBusinessType(formData.businessEntityType)
+        type: bType
       },
       people: [
         {
@@ -148,11 +139,11 @@ class TimePaymentApiClient {
           lastName: formData.primaryOwner?.lastName || 'Owner',
           phone1: cleanBizPhone,
           email: formData.primaryOwner?.email || 'owner@example.com',
-          address1: formData.primaryOwner?.homeAddress?.line1 || formData.businessAddress?.line1 || '101 Main St',
+          address1: formData.primaryOwner?.homeAddress?.line1 || formData.businessAddress?.line1 || '100 Innovation Way',
           city: formData.primaryOwner?.homeAddress?.city || formData.businessAddress?.city || 'Dallas',
           state: ownerState,
           zip: cleanDigits(formData.primaryOwner?.homeAddress?.postal || formData.businessAddress?.postal) || '75001',
-          title: 'Owner',
+          title: officialTitle,
           ownershipPercentage: '100',
           roles: {
             personalGuarantor: 'true',
@@ -162,8 +153,8 @@ class TimePaymentApiClient {
       ],
       billing: {
         billToName: formData.legalBusinessName || 'Business Applicant LLC',
-        billToAttention: `${formData.primaryOwner?.firstName || ''} ${formData.primaryOwner?.lastName || ''}`.trim() || 'Owner',
-        address1: formData.businessAddress?.line1 || '101 Main St',
+        billToAttention: `${formData.primaryOwner?.firstName || ''} ${formData.primaryOwner?.lastName || ''}`.trim() || 'Managing Member',
+        address1: formData.businessAddress?.line1 || '100 Innovation Way',
         city: formData.businessAddress?.city || 'Dallas',
         state: businessState,
         zip: cleanDigits(formData.businessAddress?.postal) || '75001',
@@ -187,12 +178,10 @@ class TimePaymentApiClient {
       submit: 'true'
     };
 
-    // Include Tax ID if available
     if (cleanTaxId) {
       payload.business.federalTaxId = cleanTaxId;
     }
 
-    // Include SSN if available
     if (cleanSsn) {
       payload.people[0].ssn = cleanSsn;
     }

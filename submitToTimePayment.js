@@ -5,25 +5,29 @@
 
 const { chromium } = require('playwright');
 
-const STATE_MAP = {
-  'alabama': 'AL', 'alaska': 'AK', 'arizona': 'AZ', 'arkansas': 'AR', 'california': 'CA',
-  'colorado': 'CO', 'connecticut': 'CT', 'delaware': 'DE', 'florida': 'FL', 'georgia': 'GA',
-  'hawaii': 'HI', 'idaho': 'ID', 'illinois': 'IL', 'indiana': 'IN', 'iowa': 'IA',
-  'kansas': 'KS', 'kentucky': 'KY', 'louisiana': 'LA', 'maine': 'ME', 'maryland': 'MD',
-  'massachusetts': 'MA', 'michigan': 'MI', 'minnesota': 'MN', 'mississippi': 'MS', 'missouri': 'MO',
-  'montana': 'MT', 'nebraska': 'NE', 'nevada': 'NV', 'new hampshire': 'NH', 'new jersey': 'NJ',
-  'new mexico': 'NM', 'new york': 'NY', 'north carolina': 'NC', 'north dakota': 'ND', 'ohio': 'OH',
-  'oklahoma': 'OK', 'oregon': 'OR', 'pennsylvania': 'PA', 'rhode island': 'RI', 'south carolina': 'SC',
-  'south dakota': 'SD', 'tennessee': 'TN', 'texas': 'TX', 'utah': 'UT', 'vermont': 'VT',
-  'virginia': 'VA', 'washington': 'WA', 'west virginia': 'WV', 'wisconsin': 'WI', 'wyoming': 'WY'
+const STATE_NAMES = {
+  'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
+  'CO': 'Colorado', 'CT': 'Connecticut', 'DE': 'Delaware', 'FL': 'Florida', 'GA': 'Georgia',
+  'HI': 'Hawaii', 'ID': 'Idaho', 'IL': 'Illinois', 'IN': 'Indiana', 'IA': 'Iowa',
+  'KS': 'Kansas', 'KY': 'Kentucky', 'LA': 'Louisiana', 'ME': 'Maine', 'MD': 'Maryland',
+  'MA': 'Massachusetts', 'MI': 'Michigan', 'MN': 'Minnesota', 'MS': 'Mississippi', 'MO': 'Missouri',
+  'MT': 'Montana', 'NE': 'Nebraska', 'NV': 'Nevada', 'NH': 'New Hampshire', 'NJ': 'New Jersey',
+  'NM': 'New Mexico', 'NY': 'New York', 'NC': 'North Carolina', 'ND': 'North Dakota', 'OH': 'Ohio',
+  'OK': 'Oklahoma', 'OR': 'Oregon', 'PA': 'Pennsylvania', 'RI': 'Rhode Island', 'SC': 'South Carolina',
+  'SD': 'South Dakota', 'TN': 'Tennessee', 'TX': 'Texas', 'UT': 'Utah', 'VT': 'Vermont',
+  'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
 };
 
-function getUSStateCode(state) {
-  if (!state) return 'TX';
-  const trimmed = state.trim();
-  if (trimmed.length === 2) return trimmed.toUpperCase();
-  const lower = trimmed.toLowerCase();
-  return STATE_MAP[lower] || 'TX';
+function getStateFullName(input) {
+  if (!input) return 'Texas';
+  const trimmed = input.trim();
+  if (trimmed.length === 2 && STATE_NAMES[trimmed.toUpperCase()]) {
+    return STATE_NAMES[trimmed.toUpperCase()];
+  }
+  for (const [code, name] of Object.entries(STATE_NAMES)) {
+    if (trimmed.toLowerCase() === name.toLowerCase()) return name;
+  }
+  return 'Texas';
 }
 
 function cleanDigits(val) {
@@ -58,7 +62,7 @@ async function submitToTimePayment(data) {
     const page = await context.newPage();
     page.setDefaultTimeout(30000);
 
-    // Track relevant network traffic and capture response bodies
+    // Track relevant network traffic and API responses
     page.on('request', req => {
       const u = req.url();
       if (req.method() === 'POST' || u.includes('applications')) {
@@ -68,11 +72,11 @@ async function submitToTimePayment(data) {
 
     page.on('response', async res => {
       const u = res.url();
-      if (u.includes('applications') || (res.status() >= 400 && u.includes('timepayment'))) {
+      if (u.includes('applications')) {
         console.log(`[TimePayment Network Response] <- [${res.status()}] ${u}`);
         try {
           const body = await res.text();
-          console.log(`[TimePayment Network API Body]:`, body);
+          console.log(`[TimePayment API Response Body]:`, body);
         } catch (e) {}
       }
     });
@@ -83,7 +87,7 @@ async function submitToTimePayment(data) {
     const phoneDigits = cleanDigits(data.primaryOwner?.phone) || '2145550188';
     const einDigits = cleanDigits(data.federalTaxId) || '123456789';
     const ssnDigits = cleanDigits(data.primaryOwner?.ssn) || '123456789';
-    const stateVal = getUSStateCode(data.businessAddress?.state || data.primaryOwner?.homeAddress?.state);
+    const stateName = getStateFullName(data.businessAddress?.state || data.primaryOwner?.homeAddress?.state);
     const amountVal = cleanDigits(data.requestedAmount) || '5000';
 
     async function safeFill(selectors, value) {
@@ -133,26 +137,20 @@ async function submitToTimePayment(data) {
           await page.keyboard.type(state, { delay: 60 });
           await page.waitForTimeout(400);
 
-          const opt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
-          if (await opt.isVisible({ timeout: 1200 }).catch(() => false)) {
+          const opt = page.locator(`[role="option"]:has-text("${state}"), li:has-text("${state}"), .MuiAutocomplete-option:has-text("${state}")`).first();
+          if (await opt.isVisible({ timeout: 1500 }).catch(() => false)) {
             await opt.click();
-            console.log(`[TimePayment] Clicked state option for ${selectorId}: ${state}`);
-            return;
+            console.log(`[TimePayment] Clicked state option "${state}" for ${selectorId}`);
           } else {
-            await page.keyboard.press('ArrowDown');
-            await page.keyboard.press('Enter');
-            console.log(`[TimePayment] Pressed ArrowDown+Enter for state ${selectorId}: ${state}`);
-          }
-        } else {
-          // If not visible directly, set via JS evaluate
-          await page.evaluate(({ id, val }) => {
-            const el = document.getElementById(id);
-            if (el) {
-              el.value = val;
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
+            const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
+            if (await anyOpt.isVisible({ timeout: 1000 }).catch(() => false)) {
+              await anyOpt.click();
+              console.log(`[TimePayment] Clicked first state option for ${selectorId}`);
+            } else {
+              await page.keyboard.press('ArrowDown');
+              await page.keyboard.press('Enter');
             }
-          }, { id: selectorId, val: state });
+          }
         }
       } catch (err) {
         console.warn(`[TimePayment] State selection warning for ${selectorId}:`, err.message);
@@ -171,7 +169,7 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.name-input-text', 'input[name="business.name"]'], data.legalBusinessName || 'Business Applicant LLC');
       await safeFill(['#business\\.dba-input-text', 'input[name="business.dba"]'], data.dba || data.legalBusinessName);
 
-      // Business entity type radio
+      // Business entity type radio (LLC)
       const bType = (data.businessEntityType || '').toLowerCase();
       if (bType.includes('corp')) {
         await safeClick(['#corporation-input-radio', 'input[value="corporation"]']);
@@ -183,23 +181,23 @@ async function submitToTimePayment(data) {
         await safeClick(['#llc-input-radio', 'input[value="llc"]']);
       }
 
-      await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1 || '200 Logistics Blvd');
+      await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1 || '100 Innovation Way');
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city || 'Dallas');
 
       // Business State
-      await selectState('business-state', stateVal);
+      await selectState('business-state', stateName);
 
       await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
       await safeClick(['#yes-input-radio', 'input[value="true"]']); // Equipment location same as business
       await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
-      await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '4');
+      await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '3');
       await safeFill(['#business\\.phone1-input-text', 'input[name="business.phone1"]'], phoneDigits);
 
       // --- STEP 3 (Guarantor Details) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
 
-      // Title Dropdown Selection
+      // Title Dropdown Selection (Managing Member for LLC)
       try {
         const titleLoc = page.locator('#people\\.0-title').first();
         if (await titleLoc.isVisible().catch(() => false)) {
@@ -209,17 +207,28 @@ async function submitToTimePayment(data) {
           await page.keyboard.press('ArrowDown');
           await page.waitForTimeout(400);
 
-          const opt = page.locator('[role="option"]:has-text("Owner"), li:has-text("Owner"), .MuiAutocomplete-option:has-text("Owner")').first();
-          if (await opt.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await opt.click();
-            console.log('[TimePayment] Successfully clicked Owner option!');
-          } else {
+          // Priority for LLC: Managing Member, Member, President
+          const preferredTitles = ['Managing Member', 'Member', 'President'];
+          let clicked = false;
+
+          for (const t of preferredTitles) {
+            const opt = page.locator(`[role="option"]:has-text("${t}"), li:has-text("${t}"), .MuiAutocomplete-option:has-text("${t}")`).first();
+            if (await opt.isVisible({ timeout: 500 }).catch(() => false)) {
+              await opt.click();
+              console.log(`[TimePayment] Clicked valid Title option: "${t}"`);
+              clicked = true;
+              break;
+            }
+          }
+
+          if (!clicked) {
             const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
-            if (await anyOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
+            if (await anyOpt.isVisible({ timeout: 1000 }).catch(() => false)) {
               await anyOpt.click();
-              console.log('[TimePayment] Clicked first option in title listbox!');
+              console.log('[TimePayment] Clicked first available option in Title listbox');
             } else {
-              await page.keyboard.type('Owner', { delay: 60 });
+              await page.keyboard.type('Managing Member', { delay: 60 });
+              await page.keyboard.press('ArrowDown');
               await page.keyboard.press('Enter');
             }
           }
@@ -231,7 +240,7 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], cleanDigits(data.primaryOwner?.ownershipPercentage) || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
 
-      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '200 Logistics Blvd';
+      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '100 Innovation Way';
       const homeCity = data.primaryOwner?.homeAddress?.city || data.businessAddress?.city || 'Dallas';
       const homeZip = data.primaryOwner?.homeAddress?.postal || data.businessAddress?.postal || '75001';
 
@@ -239,7 +248,7 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
       // Owner State
-      await selectState('people.0-state', stateVal);
+      await selectState('people.0-state', stateName);
 
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
@@ -252,10 +261,10 @@ async function submitToTimePayment(data) {
             console.log('[TimePayment] Clicked terms checkbox locator');
           }
         } else {
-          const cbLabel = page.locator('label:has(#accept-terms-conditions-checkbox), label:has-text("authorize")').first();
+          const cbLabel = page.locator('label:has(#accept-terms-conditions-checkbox), label:has-text("Terms")').first();
           if (await cbLabel.isVisible().catch(() => false)) {
             await cbLabel.click();
-            console.log('[TimePayment] Clicked terms label/container');
+            console.log('[TimePayment] Clicked terms label');
           }
         }
       } catch (e) {}
@@ -282,12 +291,14 @@ async function submitToTimePayment(data) {
 
         // Detailed Form State and Error Check
         const formState = await page.evaluate(() => {
-          const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim().toUpperCase() === 'SUBMIT');
+          const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.trim().toUpperCase().includes('SUBMIT'));
           const errors = Array.from(document.querySelectorAll('.Mui-error, [class*="error"], [role="alert"]')).map(e => e.innerText.trim()).filter(Boolean);
           const stateEls = Array.from(document.querySelectorAll('[id*="state"]')).map(s => ({ id: s.id, val: s.value }));
+          const titleEl = document.querySelector('#people\\.0-title');
           return {
             buttonFound: !!btn,
             buttonDisabled: btn ? btn.disabled : false,
+            titleValue: titleEl ? titleEl.value : null,
             errors,
             states: stateEls
           };
