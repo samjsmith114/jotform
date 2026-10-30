@@ -87,114 +87,94 @@ async function submitToTimePayment(data) {
       return false;
     }
 
+    const phoneDigits = (data.primaryOwner?.phone || '2145550188').replace(/[^0-9]/g, '');
+    const ssnDigits = (data.primaryOwner?.ssn || '123-45-6789').replace(/[^0-9]/g, '');
+    const einDigits = (data.federalTaxId || '12-3456789').replace(/[^0-9]/g, '');
+    const stateVal = data.businessAddress?.state || 'TX';
+
     // Fill all matching fields across steps
     async function fillCurrentStep() {
-      // 1. STEP 1 (Assets & Initial Contact)
+      // --- STEP 1 (Assets & Initial Contact) ---
       await safeFill(['#assets-0-costPerUnit', 'input[name="assets.0.costPerUnit"]'], data.requestedAmount);
       await safeFill(['#assets\\.0\\.description-input-text', 'textarea[name="assets.0.description"]'], data.equipmentDescription);
       await safeFill(['#people\\.0\\.firstname-input-text', 'input[name="people.0.firstName"]'], data.primaryOwner?.firstName);
       await safeFill(['#people\\.0\\.lastname-input-text', 'input[name="people.0.lastName"]'], data.primaryOwner?.lastName);
       await safeFill(['#people\\.0\\.email-input-text', 'input[name="people.0.email"]'], data.primaryOwner?.email);
 
-      // 2. STEP 2 (Business Details)
+      // --- STEP 2 (Business Details) ---
       await safeFill(['#business\\.name-input-text', 'input[name="business.name"]'], data.legalBusinessName);
       await safeFill(['#business\\.dba-input-text', 'input[name="business.dba"]'], data.dba || data.legalBusinessName);
 
-      // Business Type Radio (Select LLC or match entity)
+      // Business Type Radio
       const entity = (data.businessEntityType || '').toLowerCase();
       if (entity.includes('corp')) {
-        await safeClick(['#corporation-input-radio', 'input[id*="corporation" i]']);
+        await safeClick(['#corporation-input-radio']);
       } else if (entity.includes('sole')) {
-        await safeClick(['#sole-prop-input-radio', 'input[id*="sole" i]']);
+        await safeClick(['#sole-prop-input-radio']);
       } else if (entity.includes('partner')) {
-        await safeClick(['#partnership-input-radio', 'input[id*="partner" i]']);
+        await safeClick(['#partnership-input-radio']);
       } else {
-        await safeClick(['#llc-input-radio', 'input[id*="llc" i]']);
+        await safeClick(['#llc-input-radio']);
       }
 
-      // Address
       await safeFill(['#business\\.address1-input-text', 'input[name="business.address1"]'], data.businessAddress?.line1);
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city);
+      await safeFill(['#business-state', 'input[id="business-state"]'], stateVal);
+      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
 
-      // State
-      const stateVal = data.businessAddress?.state || 'TX';
-      await safeFill(['#business-state', 'input[id*="state" i]'], stateVal);
-      try {
-        const stateSelect = await page.$('select[id*="state" i], select[name*="state" i]');
-        if (stateSelect) {
-          await stateSelect.selectOption({ label: stateVal }).catch(() => stateSelect.selectOption({ value: stateVal }));
-        }
-      } catch (e) {}
-
-      await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal);
-
-      // Asset same as business radio: YES
-      await safeClick(['#yes-input-radio', 'input[name="assets.0.isSameAsBusiness"][value="true"]', 'input[id="yes-input-radio"]']);
-
-      // Tax ID / EIN (stripping dashes if needed)
-      const einRaw = (data.federalTaxId || '12-3456789').replace(/[^0-9]/g, '');
-      await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einRaw);
-
-      // Time in Business
+      await safeClick(['#yes-input-radio']);
+      await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
       await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], '3');
-
-      // Phone
-      const phoneDigits = (data.primaryOwner?.phone || '2145550188').replace(/[^0-9]/g, '');
       await safeFill(['#business\\.phone1-input-text', 'input[name="business.phone1"]'], phoneDigits);
 
-      // 3. STEP 3 & Beyond (Owner SSN, Title, Home Address, Disclosures)
-      await safeFill(['input[name*="ssn" i]', 'input[id*="ssn" i]'], (data.primaryOwner?.ssn || '123-45-6789').replace(/[^0-9]/g, ''));
-      await safeFill(['input[name*="title" i]'], data.primaryOwner?.title || 'Owner');
-      await safeFill(['input[name*="ownership" i]'], data.primaryOwner?.ownershipPercentage || '100');
-      await safeFill(['input[name*="homeAddress" i]', 'input[id*="homeAddress" i]'], data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1);
-      await safeFill(['input[name*="homeCity" i]', 'input[id*="homeCity" i]'], data.primaryOwner?.homeAddress?.city || data.businessAddress?.city);
-      await safeFill(['input[name*="homeZip" i]', 'input[id*="homeZip" i]'], data.primaryOwner?.homeAddress?.postal || data.businessAddress?.postal);
+      // --- STEP 3 (Owner Guarantor & Final Authorization) ---
+      await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
+      await safeFill(['#people\\.0-title', 'input[id="people.0-title"]'], data.primaryOwner?.title || 'Owner');
+      await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], data.primaryOwner?.ownershipPercentage || '100');
+      await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
 
-      // Checkboxes & consents
+      const homeAddr1 = data.primaryOwner?.homeAddress?.line1 || data.businessAddress?.line1 || '101 Elm Street';
+      const homeCity = data.primaryOwner?.homeAddress?.city || data.businessAddress?.city || 'Dallas';
+      const homeZip = data.primaryOwner?.homeAddress?.postal || data.businessAddress?.postal || '75001';
+
+      await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
+      await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
+      await safeFill(['#people\\.0-state', 'input[id="people.0-state"]'], stateVal);
+      await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
+
+      // Accept Terms Checkbox
+      await safeClick(['#accept-terms-conditions-checkbox', 'input[name="authorization"]']);
       try {
-        const checkboxes = await page.$$('input[type="checkbox"]:not(:checked)');
-        for (const cb of checkboxes) {
-          await cb.check().catch(() => {});
+        const authCheckbox = await page.$('#accept-terms-conditions-checkbox');
+        if (authCheckbox && !(await authCheckbox.isChecked())) {
+          await authCheckbox.check().catch(() => authCheckbox.click());
         }
       } catch (e) {}
     }
 
     // Multi-Step loop
-    for (let step = 0; step < 7; step++) {
+    for (let step = 0; step < 6; step++) {
       console.log(`[TimePayment] --- Step ${step}: Current URL: ${page.url()} ---`);
-
-      // Introspect inputs
-      try {
-        const inputs = await page.$$eval('input, select, textarea', els =>
-          els.filter(e => e.offsetParent !== null).map(e => ({
-            tag: e.tagName.toLowerCase(),
-            name: e.name,
-            id: e.id,
-            type: e.type
-          }))
-        );
-        console.log(`[TimePayment] Step ${step} inputs:`, JSON.stringify(inputs));
-      } catch (e) {}
 
       // Fill current step fields
       await fillCurrentStep();
       await page.waitForTimeout(1000);
 
-      // Introspect buttons
-      try {
-        const buttons = await page.$$eval('button, a.btn, input[type="submit"]', els =>
-          els.filter(e => e.offsetParent !== null).map(e => ({
-            tag: e.tagName.toLowerCase(),
-            text: (e.innerText || e.value || '').trim()
-          }))
-        );
-        console.log(`[TimePayment] Step ${step} buttons:`, JSON.stringify(buttons));
-      } catch (e) {}
+      // Check if SUBMIT button is available (Final Step)
+      const submitBtn = await page.$('button:has-text("SUBMIT"), input[value*="SUBMIT" i]');
+      if (submitBtn && await submitBtn.isVisible()) {
+        console.log('[TimePayment] *** FOUND FINAL SUBMIT BUTTON! CLICKING SUBMIT... ***');
+        await submitBtn.scrollIntoViewIfNeeded();
+        await submitBtn.click();
+        await page.waitForTimeout(6000);
+        console.log('[TimePayment] Submitted! Current URL after submit:', page.url());
+        break;
+      }
 
-      // Click the primary forward button
+      // Otherwise click forward button (LET'S GO or NEXT)
       const forwardBtn = await page.$(
-        'button:has-text("NEXT"), button:has-text("LET\'S GO"), button:has-text("Continue"), button:has-text("Submit"), button[type="submit"]'
+        'button:has-text("NEXT"), button:has-text("LET\'S GO"), button:has-text("Continue")'
       );
 
       if (forwardBtn) {
@@ -202,7 +182,7 @@ async function submitToTimePayment(data) {
         await forwardBtn.click();
         await page.waitForTimeout(4000);
       } else {
-        console.log('[TimePayment] No forward button found. Wizard finished.');
+        console.log('[TimePayment] No forward button found. Checking state...');
         break;
       }
 
