@@ -87,6 +87,35 @@ async function submitToTimePayment(data) {
       return false;
     }
 
+    // Select Autocomplete option helper
+    async function selectAutocomplete(inputSelector, text) {
+      try {
+        const input = await page.$(inputSelector);
+        if (input && await input.isVisible()) {
+          await input.scrollIntoViewIfNeeded();
+          await input.click();
+          await page.waitForTimeout(300);
+          await input.pressSequentially(text, { delay: 120 });
+          await page.waitForTimeout(600);
+          await page.keyboard.press('ArrowDown');
+          await page.waitForTimeout(200);
+          await page.keyboard.press('Enter');
+
+          // Try clicking any rendered option
+          const option = await page.$(`[role="option"]:has-text("${text}"), li:has-text("${text}"), .MuiAutocomplete-option:has-text("${text}")`);
+          if (option) {
+            await option.click();
+            console.log(`[TimePayment] Clicked dropdown option: ${text}`);
+          }
+          console.log(`[TimePayment] Typed and selected ${text} in ${inputSelector}`);
+          return true;
+        }
+      } catch (e) {
+        console.warn(`[TimePayment] Failed autocomplete for ${inputSelector}:`, e.message);
+      }
+      return false;
+    }
+
     const phoneDigits = (data.primaryOwner?.phone || '2145550188').replace(/[^0-9]/g, '');
     const ssnDigits = (data.primaryOwner?.ssn || '123-45-6789').replace(/[^0-9]/g, '');
     const einDigits = (data.federalTaxId || '12-3456789').replace(/[^0-9]/g, '');
@@ -120,19 +149,9 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.address2-input-text', 'input[name="business.address2"]'], data.businessAddress?.line2);
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city);
 
-      // Business State
-      try {
-        const bState = await page.$('#business-state');
-        if (bState && await bState.isVisible()) {
-          await bState.click();
-          await bState.fill(stateVal);
-          await page.waitForTimeout(300);
-          await page.keyboard.press('ArrowDown');
-          await page.keyboard.press('Enter');
-        }
-      } catch (e) {}
-
+      await selectAutocomplete('#business-state', stateVal);
       await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
+
       await safeClick(['#yes-input-radio']);
       await safeFill(['#business\\.federaltaxid-input-text', 'input[name="business.federalTaxId"]'], einDigits);
       await safeFill(['#business\\.timeinbusiness-input-text', 'input[name="business.timeInBusiness"]'], '3');
@@ -141,23 +160,17 @@ async function submitToTimePayment(data) {
       // --- STEP 3 (Owner Guarantor & Final Authorization) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
 
-      // Owner Title (Autocomplete dropdown handling)
-      try {
-        const titleInput = await page.$('#people\\.0-title');
-        if (titleInput && await titleInput.isVisible()) {
-          await titleInput.scrollIntoViewIfNeeded();
-          await titleInput.click();
-          await titleInput.fill('Owner');
-          await page.waitForTimeout(400);
-          await page.keyboard.press('ArrowDown');
-          await page.keyboard.press('Enter');
+      // Select Title using sequential keystrokes
+      await selectAutocomplete('#people\\.0-title', 'Owner');
 
-          // If option list exists, click Owner item
-          const opt = await page.$('[role="option"]:has-text("Owner"), li:has-text("Owner"), .MuiAutocomplete-option:has-text("Owner")');
-          if (opt) {
-            await opt.click();
-            console.log('[TimePayment] Selected Owner from title dropdown');
-          }
+      // Check if Title parent has a dropdown arrow button
+      try {
+        const titleArrow = await page.$('#people\\.0-title ~ button, #people\\.0-title + div button');
+        if (titleArrow) {
+          await titleArrow.click();
+          await page.waitForTimeout(300);
+          const opt = await page.$('li:has-text("Owner"), div[role="option"]:has-text("Owner")');
+          if (opt) await opt.click();
         }
       } catch (e) {}
 
@@ -171,18 +184,7 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.address1-input-text', 'input[name="people.0.address1"]'], homeAddr1);
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
-      // Owner State
-      try {
-        const oState = await page.$('#people\\.0-state');
-        if (oState && await oState.isVisible()) {
-          await oState.click();
-          await oState.fill(stateVal);
-          await page.waitForTimeout(300);
-          await page.keyboard.press('ArrowDown');
-          await page.keyboard.press('Enter');
-        }
-      } catch (e) {}
-
+      await selectAutocomplete('#people\\.0-state', stateVal);
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
       // Explicitly check terms checkbox
@@ -209,14 +211,22 @@ async function submitToTimePayment(data) {
       const submitBtn = await page.$('button:has-text("SUBMIT"), input[value*="SUBMIT" i]');
       if (submitBtn && await submitBtn.isVisible()) {
         console.log('[TimePayment] *** FOUND FINAL SUBMIT BUTTON! CLICKING SUBMIT... ***');
+
+        // Log parent HTML of title for debug
+        const titleDebug = await page.evaluate(() => {
+          const t = document.querySelector('#people\\.0-title');
+          return t ? t.parentElement.innerHTML : 'No title el';
+        });
+        console.log('[TimePayment] Title HTML:', titleDebug);
+
         await submitBtn.scrollIntoViewIfNeeded();
         await submitBtn.click();
         
-        // Wait 10 seconds for submission completion
-        await page.waitForTimeout(10000);
+        // Wait 12 seconds for submission completion
+        await page.waitForTimeout(12000);
         console.log('[TimePayment] Post-submit URL:', page.url());
 
-        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 700));
+        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 800));
         console.log('[TimePayment] Post-submit page text snippet:', bodySnippet.replace(/\s+/g, ' '));
         break;
       }
