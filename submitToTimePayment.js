@@ -105,7 +105,6 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.name-input-text', 'input[name="business.name"]'], data.legalBusinessName);
       await safeFill(['#business\\.dba-input-text', 'input[name="business.dba"]'], data.dba || data.legalBusinessName);
 
-      // Business Type Radio
       const entity = (data.businessEntityType || '').toLowerCase();
       if (entity.includes('corp')) {
         await safeClick(['#corporation-input-radio']);
@@ -143,14 +142,16 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0-state', 'input[id="people.0-state"]'], stateVal);
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
-      // Accept Terms Checkbox
-      await safeClick(['#accept-terms-conditions-checkbox', 'input[name="authorization"]']);
-      try {
-        const authCheckbox = await page.$('#accept-terms-conditions-checkbox');
-        if (authCheckbox && !(await authCheckbox.isChecked())) {
-          await authCheckbox.check().catch(() => authCheckbox.click());
+      // Explicitly check terms checkbox via DOM event and click
+      await page.evaluate(() => {
+        const cb = document.querySelector('#accept-terms-conditions-checkbox') || document.querySelector('input[type="checkbox"]');
+        if (cb) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('input', { bubbles: true }));
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
         }
-      } catch (e) {}
+      });
+      await safeClick(['#accept-terms-conditions-checkbox', 'input[name="authorization"]']);
     }
 
     // Multi-Step loop
@@ -167,8 +168,21 @@ async function submitToTimePayment(data) {
         console.log('[TimePayment] *** FOUND FINAL SUBMIT BUTTON! CLICKING SUBMIT... ***');
         await submitBtn.scrollIntoViewIfNeeded();
         await submitBtn.click();
-        await page.waitForTimeout(6000);
-        console.log('[TimePayment] Submitted! Current URL after submit:', page.url());
+        
+        // Wait up to 10 seconds for API submission and check page content
+        await page.waitForTimeout(8000);
+        console.log('[TimePayment] Post-submit URL:', page.url());
+
+        // Check for any validation error messages on page
+        const pageErrors = await page.$$eval('.error, .invalid-feedback, [role="alert"], .text-danger, .has-error', els =>
+          els.map(e => e.innerText?.trim()).filter(Boolean)
+        );
+        if (pageErrors.length > 0) {
+          console.warn('[TimePayment] Validation alerts found on page:', JSON.stringify(pageErrors));
+        }
+
+        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 600));
+        console.log('[TimePayment] Post-submit page text snippet:', bodySnippet.replace(/\n+/g, ' '));
         break;
       }
 
@@ -183,12 +197,6 @@ async function submitToTimePayment(data) {
         await page.waitForTimeout(4000);
       } else {
         console.log('[TimePayment] No forward button found. Checking state...');
-        break;
-      }
-
-      const currentUrl = page.url();
-      if (currentUrl.toLowerCase().includes('confirm') || currentUrl.toLowerCase().includes('thank') || currentUrl.toLowerCase().includes('success')) {
-        console.log('[TimePayment] Final Confirmation reached!', currentUrl);
         break;
       }
     }
