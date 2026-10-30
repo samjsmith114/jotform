@@ -101,44 +101,6 @@ async function submitToTimePayment(data) {
       return false;
     }
 
-    async function selectAutocomplete(inputSelector, text) {
-      try {
-        const inputLoc = page.locator(inputSelector).first();
-        if (await inputLoc.isVisible().catch(() => false)) {
-          await inputLoc.scrollIntoViewIfNeeded();
-          await inputLoc.click();
-          await page.waitForTimeout(200);
-          await page.keyboard.press('Control+A');
-          await page.keyboard.press('Backspace');
-          await page.keyboard.type(text, { delay: 50 });
-          await page.waitForTimeout(500);
-
-          // Find option popup
-          const opt = page.locator(`[role="option"]:has-text("${text}"), li:has-text("${text}"), .MuiAutocomplete-option:has-text("${text}")`).first();
-          if (await opt.isVisible({ timeout: 1500 }).catch(() => false)) {
-            await opt.click();
-            console.log(`[TimePayment] Clicked option "${text}" for ${inputSelector}`);
-            return true;
-          } else {
-            const anyOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
-            if (await anyOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
-              await anyOpt.click();
-              console.log(`[TimePayment] Clicked first available option for ${inputSelector}`);
-              return true;
-            } else {
-              await page.keyboard.press('ArrowDown');
-              await page.keyboard.press('Enter');
-              console.log(`[TimePayment] Typed and pressed Enter for ${inputSelector}`);
-              return true;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn(`[TimePayment] Autocomplete error for ${inputSelector}:`, e.message);
-      }
-      return false;
-    }
-
     async function fillCurrentStep() {
       // --- STEP 1 (Assets & Initial Contact) ---
       await safeFill(['#assets-0-costPerUnit', 'input[name="assets.0.costPerUnit"]'], amountVal);
@@ -168,7 +130,26 @@ async function submitToTimePayment(data) {
       await safeFill(['#business\\.city-input-text', 'input[name="business.city"]'], data.businessAddress?.city || 'Dallas');
 
       // Business State Autocomplete
-      await selectAutocomplete('#business-state', stateVal);
+      try {
+        const bState = page.locator('#business-state').first();
+        if (await bState.isVisible().catch(() => false)) {
+          await bState.scrollIntoViewIfNeeded();
+          await bState.click();
+          await page.waitForTimeout(200);
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Backspace');
+          await page.keyboard.type(stateVal, { delay: 60 });
+          await page.waitForTimeout(500);
+          const stateOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
+          if (await stateOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await stateOpt.click();
+            console.log(`[TimePayment] Clicked business state option for: ${stateVal}`);
+          } else {
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Enter');
+          }
+        }
+      } catch (e) {}
 
       await safeFill(['#business-zip', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
       await safeClick(['#yes-input-radio', 'input[value="true"]']); // Equipment location same as business
@@ -179,8 +160,63 @@ async function submitToTimePayment(data) {
       // --- STEP 3 (Guarantor Details) ---
       await safeFill(['#people\\.0-ssn', 'input[name="people.0.ssn"]'], ssnDigits);
 
-      // Title Autocomplete
-      await selectAutocomplete('#people\\.0-title', 'Owner');
+      // Title Dropdown Selection (Bulletproof Click)
+      try {
+        const titleInput = page.locator('#people\\.0-title').first();
+        if (await titleInput.isVisible().catch(() => false)) {
+          await titleInput.scrollIntoViewIfNeeded();
+          await titleInput.click();
+          await page.waitForTimeout(300);
+
+          // Click open indicator or ArrowDown to pop open list
+          const popupBtn = page.locator('#people\\.0-title ~ div button, button[aria-label="Open"], .MuiAutocomplete-popupIndicator').first();
+          if (await popupBtn.isVisible({ timeout: 800 }).catch(() => false)) {
+            await popupBtn.click();
+            await page.waitForTimeout(400);
+          } else {
+            await page.keyboard.press('ArrowDown');
+            await page.waitForTimeout(400);
+          }
+
+          // Search options for Owner
+          const optLocator = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option');
+          const optCount = await optLocator.count().catch(() => 0);
+          console.log(`[TimePayment] Found ${optCount} options for Title dropdown`);
+
+          let optionSelected = false;
+          if (optCount > 0) {
+            for (let i = 0; i < optCount; i++) {
+              const optText = (await optLocator.nth(i).innerText().catch(() => '')).trim();
+              if (optText.toLowerCase().includes('owner') || optText.toLowerCase().includes('president') || optText.toLowerCase().includes('member')) {
+                await optLocator.nth(i).click();
+                console.log(`[TimePayment] Clicked Title option: "${optText}"`);
+                optionSelected = true;
+                break;
+              }
+            }
+            if (!optionSelected) {
+              await optLocator.first().click();
+              console.log('[TimePayment] Clicked first option in Title list');
+              optionSelected = true;
+            }
+          }
+
+          if (!optionSelected) {
+            // Keyboard fallback: type Owner, ArrowDown, Enter
+            await page.keyboard.press('Control+A');
+            await page.keyboard.press('Backspace');
+            await page.keyboard.type('Owner', { delay: 100 });
+            await page.waitForTimeout(500);
+            await page.keyboard.press('ArrowDown');
+            await page.waitForTimeout(300);
+            await page.keyboard.press('Enter');
+            console.log('[TimePayment] Typed Owner and pressed ArrowDown+Enter');
+          }
+          await page.waitForTimeout(400);
+        }
+      } catch (e) {
+        console.warn('[TimePayment] Title selection error:', e.message);
+      }
 
       await safeFill(['#people\\.0\\.ownershippercentage-input-text', 'input[name="people.0.ownershipPercentage"]'], cleanDigits(data.primaryOwner?.ownershipPercentage) || '100');
       await safeFill(['#people\\.0\\.phone1-input-text', 'input[name="people.0.phone1"]'], phoneDigits);
@@ -193,7 +229,26 @@ async function submitToTimePayment(data) {
       await safeFill(['#people\\.0\\.city-input-text', 'input[name="people.0.city"]'], homeCity);
 
       // Owner State Autocomplete
-      await selectAutocomplete('#people\\.0-state', stateVal);
+      try {
+        const oState = page.locator('#people\\.0-state').first();
+        if (await oState.isVisible().catch(() => false)) {
+          await oState.scrollIntoViewIfNeeded();
+          await oState.click();
+          await page.waitForTimeout(200);
+          await page.keyboard.press('Control+A');
+          await page.keyboard.press('Backspace');
+          await page.keyboard.type(stateVal, { delay: 60 });
+          await page.waitForTimeout(500);
+          const stateOpt = page.locator('[role="option"], li[role="option"], .MuiAutocomplete-option').first();
+          if (await stateOpt.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await stateOpt.click();
+            console.log(`[TimePayment] Clicked owner state option for: ${stateVal}`);
+          } else {
+            await page.keyboard.press('ArrowDown');
+            await page.keyboard.press('Enter');
+          }
+        }
+      } catch (e) {}
 
       await safeFill(['#people\\.0-zip', 'input[name="people.0.zip"]'], homeZip);
 
