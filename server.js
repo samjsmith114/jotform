@@ -91,11 +91,12 @@ function parseJotformPayload(body) {
       postal: raw['q12_q12_address10[postal]'] || getVal('postal') || '',
       country: raw['q12_q12_address10[country]'] || 'United States'
     },
-    timeInBusiness: getVal('q13'),
+    timeInBusiness: getVal('time') || getVal('q13') || '3',
+    monthlyRevenue: getVal('revenue') || getVal('monthly') || '',
     primaryOwner: {
       firstName: raw['q15_q15_fullname13[first]'] || getVal('fullname13[first]') || 'Owner',
       lastName: raw['q15_q15_fullname13[last]'] || getVal('fullname13[last]') || 'Applicant',
-      title: 'Owner',
+      title: 'Member',
       ownershipPercentage: getVal('q16') || '100',
       phone: raw['q17_q17_phone15[full]'] || getVal('phone') || '',
       email: getVal('q18') || getVal('email') || '',
@@ -133,7 +134,7 @@ async function sendNotificationEmail(parsedData, result) {
       from: `"Emergency Fund Man" <${process.env.SMTP_USER}>`,
       to: NOTIFY_EMAIL,
       subject: `New Financing App: ${parsedData.legalBusinessName || 'New Applicant'} (${result.success ? 'SUBMITTED' : 'FAILED'})`,
-      text: `Financing Application Processed!\n\nBusiness: ${parsedData.legalBusinessName}\nOwner: ${parsedData.primaryOwner.firstName} ${parsedData.primaryOwner.lastName}\nAmount: $${parsedData.requestedAmount}\nStatus: ${statusText}${appNum}`
+      text: `Financing Application Processed!\n\nBusiness: ${parsedData.legalBusinessName}\nOwner: ${parsedData.primaryOwner.firstName} ${parsedData.primaryOwner.lastName}\nAmount: $${parsedData.requestedAmount}\nTime in Business: ${parsedData.timeInBusiness} years\nMonthly Revenue: $${parsedData.monthlyRevenue || 'N/A'}\nStatus: ${statusText}${appNum}`
     });
     console.log(`[Email] Notification sent to ${NOTIFY_EMAIL}`);
   } catch (mailErr) {
@@ -153,7 +154,9 @@ app.post('/webhook', async (req, res) => {
       business: parsedData.legalBusinessName,
       amount: parsedData.requestedAmount,
       owner: `${parsedData.primaryOwner.firstName} ${parsedData.primaryOwner.lastName}`,
-      email: parsedData.primaryOwner.email
+      email: parsedData.primaryOwner.email,
+      timeInBusiness: parsedData.timeInBusiness,
+      monthlyRevenue: parsedData.monthlyRevenue
     });
 
     // Send HTTP 200 immediately to Jotform so webhook acknowledges success
