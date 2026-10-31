@@ -125,6 +125,27 @@ function formatEquipmentDescription(category, description) {
   return desc || cat || 'Commercial Food Service & Restaurant Equipment';
 }
 
+function extractPhone(raw) {
+  if (raw && raw['q17_q17_phone15[full]']) return String(raw['q17_q17_phone15[full]']);
+  for (const [k, v] of Object.entries(raw || {})) {
+    if (k.toLowerCase().includes('phone')) {
+      if (typeof v === 'object' && v !== null) {
+        return v.full || `${v.area || ''}${v.phone || ''}` || '2145550188';
+      }
+      if (typeof v === 'string') {
+        if (v.startsWith('{')) {
+          try {
+            const p = JSON.parse(v);
+            if (p.full) return p.full;
+          } catch (e) {}
+        }
+        return v;
+      }
+    }
+  }
+  return '2145550188';
+}
+
 // Helper to extract fields from Jotform payload
 function parseJotformPayload(body) {
   let raw = body || {};
@@ -188,7 +209,7 @@ function parseJotformPayload(body) {
       lastName: raw['q15_q15_fullname13[last]'] || getVal('fullname13[last]') || 'Smith',
       title: 'Member',
       ownershipPercentage: getVal('q16') || '100',
-      phone: raw['q17_q17_phone15[full]'] || getVal('phone') || '2145550188',
+      phone: extractPhone(raw),
       email: getVal('q18') || getVal('email') || 'owner@example.com',
       ssn: getVal('q19') || getVal('ssn') || '232432432',
       dob: getVal('dob') || '',
