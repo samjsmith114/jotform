@@ -334,25 +334,59 @@ async function submitToTimePayment(data, onLog) {
         emitLog('Found Final SUBMIT button. Submitting application to TimePayment...');
         await submitBtn.click({ force: true });
         console.log('[TimePayment] Clicked submit button!');
-        emitLog('Submitted form! Waiting for confirmation screen...');
+        emitLog('Submitted form! Waiting for underwriting response and confirmation...');
         
-        // Wait up to 15 seconds for confirmation screen
-        await page.waitForTimeout(15000);
-        console.log('[TimePayment] Post-submit URL:', page.url());
+        // Wait up to 25 seconds for URL change or confirmation
+        for (let w = 0; w < 10; w++) {
+          await page.waitForTimeout(2500);
+          const currentUrl = page.url();
+          if (currentUrl.includes('success') || currentUrl.includes('confirm') || currentUrl.includes('app_number')) {
+            break;
+          }
+        }
+        
+        const postSubmitUrl = page.url();
+        console.log('[TimePayment] Post-submit URL:', postSubmitUrl);
 
-        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 1500));
+        // Check for URL-based application number
+        try {
+          const urlObj = new URL(postSubmitUrl);
+          const urlAppNum = urlObj.searchParams.get('app_number') || urlObj.searchParams.get('appNumber');
+          if (urlAppNum) {
+            applicationNumber = urlAppNum;
+          }
+        } catch (e) {}
+
+        const bodySnippet = await page.evaluate(() => document.body.innerText.substring(0, 2000));
         console.log('[TimePayment] Post-submit text:', bodySnippet.replace(/\s+/g, ' '));
 
-        // Extract application number
-        const match = bodySnippet.match(/application number is\s*(\d+)/i) || bodySnippet.match(/(\d{8})/);
-        if (match) {
-          applicationNumber = match[1];
+        // Check for body-based application number
+        if (!applicationNumber) {
+          const match = bodySnippet.match(/application number is\s*(\d+)/i) || 
+                        bodySnippet.match(/application\s*#?:?\s*(\d{8})/i) ||
+                        bodySnippet.match(/(\d{8})/);
+          if (match) {
+            applicationNumber = match[1];
+          }
+        }
+
+        if (applicationNumber) {
           emitLog(`SUCCESS! TimePayment Application Number: ${applicationNumber}`);
           console.log(`🎉 [TimePayment] Extracted Application Number: ${applicationNumber}`);
+          break;
         } else {
-          emitLog(`Application submitted. Current confirmation page: ${page.url()}`);
+          // If still on step=3 or no app number, extract error message from page
+          const errorList = await page.evaluate(() => {
+            const errEls = Array.from(document.querySelectorAll('.Mui-error, [role="alert"], [class*="error" i], .text-danger, p:has-text("invalid"), p:has-text("match"), p:has-text("required")'));
+            return [...new Set(errEls.map(e => e.innerText.trim()).filter(t => t.length > 2 && !t.includes('\n')))];
+          });
+
+          const errorDetail = errorList.length > 0 ? errorList.join(' | ') : 'Identity check / validation halted form on Step 3';
+          emitLog(`Submission issue on Step 3: ${errorDetail}`);
+          console.error(`[TimePayment Error Detail]: ${errorDetail}`);
+
+          throw new Error(`TimePayment portal rejected submission on Step 3: ${errorDetail}`);
         }
-        break;
       }
 
       // Click Forward button (NEXT or LET'S GO)
@@ -378,9 +412,10 @@ async function submitToTimePayment(data, onLog) {
 
     await browser.close();
     return {
-      success: true,
+      success: Boolean(applicationNumber),
       applicationNumber,
-      finalUrl
+      finalUrl,
+      error: applicationNumber ? null : 'Submission did not return a valid TimePayment application number'
     };
 
   } catch (error) {
