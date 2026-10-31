@@ -163,7 +163,7 @@ class TimePaymentApiClient {
       },
       assets: [
         {
-          description: formData.equipmentDescription || formData.equipmentCategory || 'Commercial Equipment',
+          description: formData.formattedEquipmentDescription || (formData.equipmentCategory && formData.equipmentDescription ? `${formData.equipmentCategory} - ${formData.equipmentDescription}` : (formData.equipmentDescription || formData.equipmentCategory || 'Commercial Equipment')),
           costPerUnit: costPerUnit,
           quantity: '1',
           condition: 'New'

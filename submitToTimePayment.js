@@ -167,7 +167,8 @@ async function submitToTimePayment(data) {
     async function fillCurrentStep() {
       // --- STEP 1 (Assets & Initial Contact) ---
       await safeFill(['[id="assets-0-costPerUnit"]', 'input[name="assets.0.costPerUnit"]'], amountVal);
-      await safeFill(['[id="assets.0.description-input-text"]', 'textarea[name="assets.0.description"]'], data.equipmentDescription || data.equipmentCategory || 'Commercial Equipment');
+      const fullEquipmentDesc = data.formattedEquipmentDescription || (data.equipmentCategory && data.equipmentDescription ? `${data.equipmentCategory} - ${data.equipmentDescription}` : (data.equipmentDescription || data.equipmentCategory || 'Commercial Equipment'));
+      await safeFill(['[id="assets.0.description-input-text"]', 'textarea[name="assets.0.description"]'], fullEquipmentDesc);
       await safeFill(['[id="people.0.firstname-input-text"]', 'input[name="people.0.firstName"]'], data.primaryOwner?.firstName || 'Samuel');
       await safeFill(['[id="people.0.lastname-input-text"]', 'input[name="people.0.lastName"]'], data.primaryOwner?.lastName || 'Smith');
       await safeFill(['[id="people.0.email-input-text"]', 'input[name="people.0.email"]'], data.primaryOwner?.email || 'owner@example.com');
@@ -198,7 +199,19 @@ async function submitToTimePayment(data) {
       await safeFill(['[id="business-zip"]', 'input[name="business.zip"]'], data.businessAddress?.postal || '75001');
       await safeClick(['[id="yes-input-radio"]', 'input[value="true"]']);
       await safeFill(['[id="business.federaltaxid-input-text"]', 'input[name="business.federalTaxId"]'], einDigits);
-      await safeFill(['[id="business.timeinbusiness-input-text"]', 'input[name="business.timeInBusiness"]'], cleanDigits(data.timeInBusiness) || '3');
+      await safeFill(['[id="business.timeinbusiness-input-text"]', 'input[name="business.timeInBusiness"]'], data.timeInBusiness || '3');
+
+      // CRITICAL: Ensure Time in Business units is strictly in YEARS mode (checkbox must be unchecked)
+      try {
+        const unitsCb = page.locator('[id="business-timeInBusinessUnits"]').first();
+        if (await unitsCb.isVisible().catch(() => false)) {
+          if (await unitsCb.isChecked()) {
+            await unitsCb.click();
+            console.log('[TimePayment] Unchecked business-timeInBusinessUnits to enforce YEARS mode');
+          }
+        }
+      } catch (e) {}
+
       await safeFill(['[id="business.phone1-input-text"]', 'input[name="business.phone1"]'], phoneDigits);
 
       // --- STEP 3 (Guarantor Details) ---
@@ -276,7 +289,7 @@ async function submitToTimePayment(data) {
       } catch (e) {}
 
       await page.evaluate(() => {
-        const cbs = document.querySelectorAll('[id="accept-terms-conditions-checkbox"], input[name="authorization"], input[type="checkbox"]');
+        const cbs = document.querySelectorAll('[id="accept-terms-conditions-checkbox"], input[name="authorization"]');
         cbs.forEach(cb => {
           if (!cb.checked) cb.click();
         });

@@ -41,6 +41,35 @@ app.get('/', (req, res) => {
   });
 });
 
+// Helper to clean and sanitize Time in Business (Years)
+function cleanTimeInBusiness(val) {
+  if (!val) return '3';
+  const cleanStr = String(val).trim();
+  const num = parseFloat(cleanStr.replace(/[^\d.]/g, ''));
+  if (isNaN(num) || num <= 0) return '3';
+  // If user entered a calendar year like 2019 or 1998
+  if (num >= 1950 && num <= 2026) {
+    return String(Math.max(1, 2026 - Math.floor(num)));
+  }
+  // If user entered months or large numbers like 120 or 345
+  if (num > 60) {
+    return String(Math.min(50, Math.max(1, Math.round(num / 12))));
+  }
+  return String(Math.round(num));
+}
+
+// Helper to combine Equipment Category & Description for TimePayment categorizer
+function formatEquipmentDescription(category, description) {
+  const cat = (category && !category.toLowerCase().includes('other') && !category.toLowerCase().includes('select')) ? category.trim() : '';
+  const desc = (description && description.trim()) ? description.trim() : '';
+  
+  if (cat && desc) {
+    if (desc.toLowerCase().includes(cat.toLowerCase())) return desc;
+    return `${cat} - ${desc}`;
+  }
+  return desc || cat || 'Commercial Food Service & Restaurant Equipment';
+}
+
 // Helper to extract fields from Jotform payload
 function parseJotformPayload(body) {
   let raw = body || {};
@@ -73,11 +102,17 @@ function parseJotformPayload(body) {
     return '';
   }
 
+  const rawCategory = getVal('q4') || 'Commercial Equipment';
+  const rawDescription = getVal('q5') || getVal('description') || 'Business Equipment';
+  const formattedEquipmentDescription = formatEquipmentDescription(rawCategory, rawDescription);
+  const timeInBusiness = cleanTimeInBusiness(getVal('time') || getVal('q13') || '3');
+
   return {
     submissionId: raw.submissionID || '',
     requestedAmount: getVal('q3') || getVal('amount') || '5000',
-    equipmentCategory: getVal('q4') || 'Commercial Equipment',
-    equipmentDescription: getVal('q5') || getVal('description') || 'Business Equipment',
+    equipmentCategory: rawCategory,
+    equipmentDescription: rawDescription,
+    formattedEquipmentDescription,
     urgency: getVal('q6'),
     legalBusinessName: getVal('q8') || getVal('legal') || getVal('business') || 'Business Applicant',
     dba: getVal('q9') || getVal('dba'),
@@ -91,8 +126,8 @@ function parseJotformPayload(body) {
       postal: raw['q12_q12_address10[postal]'] || getVal('postal') || '',
       country: raw['q12_q12_address10[country]'] || 'United States'
     },
-    timeInBusiness: getVal('time') || getVal('q13') || '3',
-    monthlyRevenue: getVal('revenue') || getVal('monthly') || '',
+    timeInBusiness,
+    monthlyRevenue: getVal('q36') || getVal('revenue') || getVal('monthly') || '',
     primaryOwner: {
       firstName: raw['q15_q15_fullname13[first]'] || getVal('fullname13[first]') || 'Owner',
       lastName: raw['q15_q15_fullname13[last]'] || getVal('fullname13[last]') || 'Applicant',
