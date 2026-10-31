@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emergency Fund Man | Integration Live Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.6; transform: scale(1.05); }
+    }
+    .animate-pulse-slow {
+      animation: pulse-slow 2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans">
+  <!-- Top Navigation -->
+  <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <div class="flex items-center space-x-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 flex items-center justify-center font-bold text-white text-xl shadow-lg shadow-orange-500/20">
+          <i class="fa-solid fa-bolt"></i>
+        </div>
+        <div>
+          <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+            Emergency Fund Man
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-orange-500/10 text-orange-400 border border-orange-500/20">TimePayment VHD64</span>
+          </h1>
+          <p class="text-xs text-slate-400">Jotform &rarr; TimePayment Live Pipeline Monitor</p>
+        </div>
+      </div>
+
+      <!-- Live Webhook Health Indicator -->
+      <div class="flex items-center space-x-4">
+        <div class="hidden sm:flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-800 border border-slate-700 text-xs">
+          <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span class="text-slate-300">Webhook: <code class="text-emerald-400 font-mono">/webhook</code></span>
+        </div>
+        
+        <button id="btnTestWebhook" onclick="sendTestWebhook()" class="px-3.5 py-1.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-lg text-xs font-semibold shadow-md shadow-orange-500/20 transition flex items-center gap-1.5">
+          <i class="fa-solid fa-paper-plane"></i>
+          <span>Send Test Webhook</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-1 w-full space-y-6">
+
+    <!-- Metrics Cards -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">Total Received</span>
+          <div class="w-8 h-8 rounded-lg bg-blue-500/10 text-blue-400 flex items-center justify-center">
+            <i class="fa-solid fa-inbox text-sm"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="metricTotal" class="text-3xl font-extrabold text-white">0</span>
+          <span class="text-xs text-slate-400">Webhooks</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">Submitted to TimePayment</span>
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+            <i class="fa-solid fa-check text-sm"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="metricSuccess" class="text-3xl font-extrabold text-emerald-400">0</span>
+          <span class="text-xs text-emerald-500/80 font-medium">Passed</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">In Progress</span>
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+            <i class="fa-solid fa-spinner text-sm animate-spin"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="metricProcessing" class="text-3xl font-extrabold text-amber-400">0</span>
+          <span class="text-xs text-amber-500/80 font-medium">Active</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-semibold uppercase tracking-wider">Failed / Issues</span>
+          <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+            <i class="fa-solid fa-triangle-exclamation text-sm"></i>
+          </div>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="metricFailed" class="text-3xl font-extrabold text-rose-400">0</span>
+          <span class="text-xs text-rose-500/80 font-medium">Attention</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Submissions Panel -->
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-xl">
+      <div class="px-6 py-4 border-b border-slate-800 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            Submissions Stream
+            <span id="liveBadge" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> Live Auto-Refresh
+            </span>
+          </h2>
+          <p class="text-xs text-slate-400">Real-time status of applications received from Jotform and pushed into TimePayment</p>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <button onclick="fetchSubmissions()" class="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium border border-slate-700 transition flex items-center gap-1.5">
+            <i class="fa-solid fa-rotate-right" id="refreshIcon"></i>
+            <span>Refresh</span>
+          </button>
+          <button onclick="clearHistory()" class="px-3 py-1.5 bg-slate-800 hover:bg-rose-900/30 hover:text-rose-300 text-slate-400 rounded-lg text-xs font-medium border border-slate-700 hover:border-rose-800/40 transition flex items-center gap-1.5">
+            <i class="fa-solid fa-trash-can"></i>
+            <span>Clear</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Submissions Table -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left text-sm text-slate-300">
+          <thead class="bg-slate-950/60 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
+            <tr>
+              <th class="px-6 py-3.5">Time Received</th>
+              <th class="px-6 py-3.5">Business / Applicant</th>
+              <th class="px-6 py-3.5">Equipment / Amount</th>
+              <th class="px-6 py-3.5">Time in Biz</th>
+              <th class="px-6 py-3.5">Status</th>
+              <th class="px-6 py-3.5">Application #</th>
+              <th class="px-6 py-3.5 text-right">Details & Logs</th>
+            </tr>
+          </thead>
+          <tbody id="submissionsTableBody" class="divide-y divide-slate-800/60 font-normal">
+            <tr>
+              <td colspan="7" class="px-6 py-12 text-center text-slate-500">
+                <i class="fa-solid fa-spinner animate-spin text-2xl mb-2 text-slate-400"></i>
+                <p>Loading real-time submissions...</p>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </main>
+
+  <!-- Details & Log Inspection Modal -->
+  <div id="detailsModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50">
+        <div>
+          <h3 id="modalTitle" class="text-lg font-bold text-white flex items-center gap-2">
+            Submission Details
+          </h3>
+          <p id="modalSubtitle" class="text-xs text-slate-400 font-mono mt-0.5"></p>
+        </div>
+        <button onclick="closeModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 overflow-y-auto space-y-6 flex-1 text-sm">
+        
+        <!-- Status Banner -->
+        <div id="modalStatusBanner" class="p-4 rounded-xl border flex items-start gap-3"></div>
+
+        <!-- Key Information Grid -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Business & Owner Box -->
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-orange-400 border-b border-slate-800/80 pb-1.5 flex items-center gap-2">
+              <i class="fa-solid fa-building"></i> Business & Guarantor
+            </h4>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span class="text-slate-500 block">Legal Business:</span>
+                <span id="modalBizName" class="font-medium text-slate-200"></span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">DBA:</span>
+                <span id="modalDba" class="font-medium text-slate-200"></span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Primary Owner:</span>
+                <span id="modalOwner" class="font-medium text-slate-200"></span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Phone & Email:</span>
+                <span id="modalContact" class="font-medium text-slate-200"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Financing & Equipment Box -->
+          <div class="bg-slate-950/60 border border-slate-800 rounded-xl p-4 space-y-2.5">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-amber-400 border-b border-slate-800/80 pb-1.5 flex items-center gap-2">
+              <i class="fa-solid fa-calculator"></i> Financing & Assets
+            </h4>
+            <div class="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <span class="text-slate-500 block">Requested Amount:</span>
+                <span id="modalAmount" class="font-bold text-emerald-400 text-sm"></span>
+              </div>
+              <div>
+                <span class="text-slate-500 block">Time in Business:</span>
+                <span id="modalTimeInBiz" class="font-medium text-slate-200"></span>
+              </div>
+              <div class="col-span-2">
+                <span class="text-slate-500 block">Equipment Description (Sent to TimePayment):</span>
+                <span id="modalEquipment" class="font-medium text-slate-200 block bg-slate-900 p-1.5 rounded mt-0.5 border border-slate-800"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step-by-Step Live Execution Logs -->
+        <div class="bg-slate-950/80 border border-slate-800 rounded-xl overflow-hidden">
+          <div class="px-4 py-2.5 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+              <i class="fa-solid fa-terminal text-emerald-400"></i> Execution Pipeline Logs
+            </span>
+            <span id="modalLogCount" class="text-xs text-slate-500 font-mono"></span>
+          </div>
+          <div id="modalLogsContainer" class="p-4 font-mono text-xs space-y-1.5 max-h-60 overflow-y-auto text-slate-300 bg-black/40">
+          </div>
+        </div>
+
+        <!-- Raw Payload Collapsible -->
+        <details class="bg-slate-950/50 border border-slate-800 rounded-xl p-3 text-xs">
+          <summary class="font-semibold text-slate-400 cursor-pointer hover:text-slate-200">View Raw Jotform Data</summary>
+          <pre id="modalRawPayload" class="mt-3 p-3 bg-black/60 rounded text-slate-400 font-mono text-[11px] overflow-x-auto max-h-48"></pre>
+        </details>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-slate-800 bg-slate-950/40 flex justify-end">
+        <button onclick="closeModal()" class="px-4 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold transition">
+          Close
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let activeSubmissions = [];
+    let currentModalId = null;
+
+    async function fetchSubmissions() {
+      const refreshIcon = document.getElementById('refreshIcon');
+      if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+      try {
+        const res = await fetch('/api/submissions');
+        if (!res.ok) throw new Error('Network error: ' + res.status);
+        const data = await res.json();
+        
+        activeSubmissions = data.submissions || [];
+        updateMetrics(data.metrics || {});
+        renderTable(activeSubmissions);
+
+        // If modal is currently open, refresh its data
+        if (currentModalId) {
+          const updated = activeSubmissions.find(s => s.id === currentModalId);
+          if (updated) renderModal(updated);
+        }
+      } catch (err) {
+        console.error('Failed to fetch submissions:', err);
+      } finally {
+        if (refreshIcon) {
+          setTimeout(() => refreshIcon.classList.remove('animate-spin'), 400);
+        }
+      }
+    }
+
+    function updateMetrics(metrics) {
+      document.getElementById('metricTotal').innerText = metrics.total || 0;
+      document.getElementById('metricSuccess').innerText = metrics.success || 0;
+      document.getElementById('metricProcessing').innerText = metrics.processing || 0;
+      document.getElementById('metricFailed').innerText = metrics.failed || 0;
+    }
+
+    function renderTable(list) {
+      const tbody = document.getElementById('submissionsTableBody');
+      if (!list || list.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="px-6 py-12 text-center text-slate-500">
+              <i class="fa-solid fa-inbox text-3xl mb-2 text-slate-600 block"></i>
+              <p class="font-medium text-slate-400">No webhooks received yet</p>
+              <p class="text-xs text-slate-600 mt-1">Submit your Jotform or click "Send Test Webhook" above to test the pipeline.</p>
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = list.map(item => {
+        let badgeHtml = '';
+        if (item.status === 'SUCCESS') {
+          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><i class="fa-solid fa-check"></i> SUCCESS</span>`;
+        } else if (item.status === 'PROCESSING') {
+          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse"><i class="fa-solid fa-spinner animate-spin"></i> PROCESSING</span>`;
+        } else {
+          badgeHtml = `<span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20"><i class="fa-solid fa-xmark"></i> FAILED</span>`;
+        }
+
+        const appNum = item.applicationNumber 
+          ? `<span class="font-mono font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">#${item.applicationNumber}</span>` 
+          : `<span class="text-slate-600">&mdash;</span>`;
+
+        const equipDesc = item.formattedEquipmentDescription || item.equipmentDescription || item.equipmentCategory || 'Commercial Equipment';
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition border-b border-slate-800/60">
+            <td class="px-6 py-4 whitespace-nowrap">
+              <div class="text-slate-200 font-medium">${item.formattedDate || item.timestamp}</div>
+              <div class="text-[11px] text-slate-500">${item.source || 'Webhook'}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="font-semibold text-white">${escapeHtml(item.business)}</div>
+              <div class="text-xs text-slate-400">${escapeHtml(item.owner)}</div>
+            </td>
+            <td class="px-6 py-4">
+              <div class="font-bold text-emerald-400">$${item.amount || '0'}</div>
+              <div class="text-xs text-slate-400 truncate max-w-xs" title="${escapeHtml(equipDesc)}">${escapeHtml(equipDesc)}</div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              <div class="text-slate-300 font-medium">${escapeHtml(item.timeInBusiness || 'N/A')}</div>
+              <div class="text-[11px] text-slate-500">Rev: $${escapeHtml(item.monthlyRevenue || 'N/A')}</div>
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              ${badgeHtml}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap">
+              ${appNum}
+            </td>
+            <td class="px-6 py-4 whitespace-nowrap text-right">
+              <button onclick="openModal('${item.id}')" class="px-3 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg text-xs font-medium border border-slate-700 transition">
+                <i class="fa-solid fa-list-check mr-1 text-slate-400"></i> Details &amp; Logs
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function openModal(id) {
+      currentModalId = id;
+      const item = activeSubmissions.find(s => s.id === id);
+      if (!item) return;
+
+      renderModal(item);
+      document.getElementById('detailsModal').classList.remove('hidden');
+    }
+
+    function renderModal(item) {
+      document.getElementById('modalTitle').innerHTML = `
+        ${escapeHtml(item.business)}
+        <span class="text-xs px-2 py-0.5 rounded font-mono ${item.status === 'SUCCESS' ? 'bg-emerald-500/10 text-emerald-400' : (item.status === 'PROCESSING' ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400')}">
+          ${item.status}
+        </span>
+      `;
+      document.getElementById('modalSubtitle').innerText = `ID: ${item.id} | Received: ${item.formattedDate}`;
+
+      // Status Banner
+      const banner = document.getElementById('modalStatusBanner');
+      if (item.status === 'SUCCESS') {
+        banner.className = 'p-4 rounded-xl border bg-emerald-500/10 border-emerald-500/30 text-emerald-300 flex items-start gap-3';
+        banner.innerHTML = `
+          <div class="text-xl text-emerald-400"><i class="fa-solid fa-circle-check"></i></div>
+          <div>
+            <div class="font-bold text-emerald-200">Application Successfully Submitted to TimePayment!</div>
+            <div class="text-xs text-emerald-300/80 mt-0.5">Application Number: <strong class="font-mono text-white bg-emerald-900/60 px-1.5 py-0.5 rounded">${item.applicationNumber || 'Approved'}</strong>. This application is now active in TimePayment InfoHub.</div>
+          </div>
+        `;
+      } else if (item.status === 'PROCESSING') {
+        banner.className = 'p-4 rounded-xl border bg-amber-500/10 border-amber-500/30 text-amber-300 flex items-start gap-3';
+        banner.innerHTML = `
+          <div class="text-xl text-amber-400"><i class="fa-solid fa-spinner animate-spin"></i></div>
+          <div>
+            <div class="font-bold text-amber-200">Submission In Progress...</div>
+            <div class="text-xs text-amber-300/80 mt-0.5">Automating steps into TimePayment financing portal (Headless Chromium). Watch the live logs below.</div>
+          </div>
+        `;
+      } else {
+        banner.className = 'p-4 rounded-xl border bg-rose-500/10 border-rose-500/30 text-rose-300 flex items-start gap-3';
+        banner.innerHTML = `
+          <div class="text-xl text-rose-400"><i class="fa-solid fa-circle-xmark"></i></div>
+          <div>
+            <div class="font-bold text-rose-200">Submission Issue Detected:</div>
+            <div class="text-xs text-rose-300 mt-1 font-mono">${escapeHtml(item.error || 'Automation could not complete.')}</div>
+          </div>
+        `;
+      }
+
+      // Fields
+      document.getElementById('modalBizName').innerText = item.business;
+      document.getElementById('modalDba').innerText = item.dba || 'None';
+      document.getElementById('modalOwner').innerText = item.owner;
+      document.getElementById('modalContact').innerText = `${item.phone || 'N/A'} | ${item.email || 'N/A'}`;
+      document.getElementById('modalAmount').innerText = `$${item.amount}`;
+      document.getElementById('modalTimeInBiz').innerText = item.timeInBusiness || 'N/A';
+      document.getElementById('modalEquipment').innerText = item.formattedEquipmentDescription || item.equipmentDescription || item.equipmentCategory || 'N/A';
+
+      // Logs
+      const logsContainer = document.getElementById('modalLogsContainer');
+      const logs = item.logs || [];
+      document.getElementById('modalLogCount').innerText = `${logs.length} events logged`;
+      if (logs.length === 0) {
+        logsContainer.innerHTML = `<span class="text-slate-500">No log entries available.</span>`;
+      } else {
+        logsContainer.innerHTML = logs.map(line => {
+          let lineClass = 'text-slate-300';
+          if (line.includes('SUCCESS') || line.includes('Application Number')) lineClass = 'text-emerald-400 font-bold';
+          if (line.includes('error') || line.includes('Failed') || line.includes('403')) lineClass = 'text-rose-400 font-semibold';
+          if (line.includes('Warning') || line.includes('falling back')) lineClass = 'text-amber-400';
+          return `<div class="${lineClass}">${escapeHtml(line)}</div>`;
+        }).join('');
+      }
+
+      // Raw payload
+      document.getElementById('modalRawPayload').innerText = JSON.stringify(item.parsedData || {}, null, 2);
+    }
+
+    function closeModal() {
+      document.getElementById('detailsModal').classList.add('hidden');
+      currentModalId = null;
+    }
+
+    async function sendTestWebhook() {
+      const btn = document.getElementById('btnTestWebhook');
+      const originalText = btn.innerHTML;
+      btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> <span>Sending Test...</span>`;
+      btn.disabled = true;
+
+      try {
+        const res = await fetch('/api/test-submission', { method: 'POST' });
+        const result = await res.json();
+        await fetchSubmissions();
+      } catch (err) {
+        alert('Test Webhook failed: ' + err.message);
+      } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+      }
+    }
+
+    async function clearHistory() {
+      if (!confirm('Are you sure you want to clear the submission history log?')) return;
+      try {
+        await fetch('/api/submissions/clear', { method: 'POST' });
+        await fetchSubmissions();
+      } catch (e) {
+        alert('Could not clear: ' + e.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // Auto-refresh poll every 3 seconds
+    setInterval(fetchSubmissions, 3000);
+    fetchSubmissions();
+  </script>
+</body>
+</html>

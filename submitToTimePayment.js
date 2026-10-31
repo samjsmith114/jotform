@@ -35,8 +35,15 @@ function cleanDigits(val) {
   return String(val).replace(/\D/g, '');
 }
 
-async function submitToTimePayment(data) {
-  console.log('[TimePayment] Starting multi-step submission for:', data.legalBusinessName || 'Applicant');
+async function submitToTimePayment(data, onLog) {
+  function emitLog(msg) {
+    console.log(`[TimePayment] ${msg}`);
+    if (typeof onLog === 'function') {
+      try { onLog(msg); } catch (e) {}
+    }
+  }
+
+  emitLog(`Starting multi-step submission for: ${data.legalBusinessName || 'Applicant'}`);
 
   const portalUrl = process.env.TIMEPAYMENT_URL || 'https://secure.financ.ing/app?dealercode=VHD64&apptype=B';
   let browser = null;
@@ -82,7 +89,9 @@ async function submitToTimePayment(data) {
     });
 
     console.log('[TimePayment] Navigating to:', portalUrl);
+    emitLog('Navigating to TimePayment financing portal...');
     await page.goto(portalUrl, { waitUntil: 'networkidle', timeout: 45000 });
+    emitLog('Loaded portal successfully. Beginning step-by-step submission.');
 
     const phoneDigits = cleanDigits(data.primaryOwner?.phone) || '2145550188';
     const einDigits = cleanDigits(data.federalTaxId) || '123456789';
@@ -322,8 +331,10 @@ async function submitToTimePayment(data) {
         console.log('[TimePayment Form Inputs State]:', JSON.stringify(inputDump));
 
         await submitBtn.scrollIntoViewIfNeeded();
+        emitLog('Found Final SUBMIT button. Submitting application to TimePayment...');
         await submitBtn.click({ force: true });
         console.log('[TimePayment] Clicked submit button!');
+        emitLog('Submitted form! Waiting for confirmation screen...');
         
         // Wait up to 15 seconds for confirmation screen
         await page.waitForTimeout(15000);
@@ -336,7 +347,10 @@ async function submitToTimePayment(data) {
         const match = bodySnippet.match(/application number is\s*(\d+)/i) || bodySnippet.match(/(\d{8})/);
         if (match) {
           applicationNumber = match[1];
+          emitLog(`SUCCESS! TimePayment Application Number: ${applicationNumber}`);
           console.log(`🎉 [TimePayment] Extracted Application Number: ${applicationNumber}`);
+        } else {
+          emitLog(`Application submitted. Current confirmation page: ${page.url()}`);
         }
         break;
       }
@@ -344,7 +358,7 @@ async function submitToTimePayment(data) {
       // Click Forward button (NEXT or LET'S GO)
       const forwardBtn = await page.$('button:has-text("NEXT"), button:has-text("LET\'S GO"), button:has-text("Continue")');
       if (forwardBtn) {
-        console.log('[TimePayment] Clicking forward button...');
+        emitLog(`Navigating to next step (Step ${step + 1})...`);
         await forwardBtn.click();
         await page.waitForTimeout(4000);
       } else {
@@ -354,7 +368,7 @@ async function submitToTimePayment(data) {
 
       const currentUrl = page.url();
       if (currentUrl.toLowerCase().includes('confirm') || currentUrl.toLowerCase().includes('thank') || currentUrl.toLowerCase().includes('success')) {
-        console.log('[TimePayment] Final Confirmation reached!', currentUrl);
+        emitLog(`Reached confirmation screen: ${currentUrl}`);
         break;
       }
     }
@@ -370,6 +384,7 @@ async function submitToTimePayment(data) {
     };
 
   } catch (error) {
+    emitLog(`Execution error: ${error.message}`);
     console.error('[TimePayment] Execution error:', error.message);
     if (browser) await browser.close().catch(() => {});
     return {
