@@ -4,6 +4,7 @@
  */
 
 const { chromium } = require('playwright');
+const path = require('path');
 
 const STATE_NAMES = {
   'AL': 'Alabama', 'AK': 'Alaska', 'AZ': 'Arizona', 'AR': 'Arkansas', 'CA': 'California',
@@ -47,6 +48,7 @@ async function submitToTimePayment(data, onLog) {
 
   const portalUrl = process.env.TIMEPAYMENT_URL || 'https://secure.financ.ing/app?dealercode=VHD64&apptype=B';
   let browser = null;
+  let page = null;
 
   try {
     console.log('[TimePayment] Launching Playwright Chromium...');
@@ -66,7 +68,7 @@ async function submitToTimePayment(data, onLog) {
       viewport: { width: 1280, height: 900 }
     });
 
-    const page = await context.newPage();
+    page = await context.newPage();
     page.setDefaultTimeout(30000);
 
     // Track relevant network traffic
@@ -421,6 +423,14 @@ async function submitToTimePayment(data, onLog) {
   } catch (error) {
     emitLog(`Execution error: ${error.message}`);
     console.error('[TimePayment] Execution error:', error.message);
+    if (page) {
+      try {
+        const screenshotPath = path.join(__dirname, 'public', 'last_error.png');
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log('[TimePayment] Saved portal error screenshot to public/last_error.png');
+        emitLog('Saved screenshot of portal error to dashboard.');
+      } catch (sErr) {}
+    }
     if (browser) await browser.close().catch(() => {});
     return {
       success: false,

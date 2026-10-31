@@ -78,6 +78,24 @@ app.post('/api/submissions/clear', (req, res) => {
   res.json({ success: true, message: 'Submission history cleared' });
 });
 
+// Retry submission directly from dashboard
+app.post('/api/submissions/:id/retry', (req, res) => {
+  const item = submissionsStore.getById(req.params.id);
+  if (!item) return res.status(404).json({ error: 'Submission not found' });
+
+  submissionsStore.update(req.params.id, {
+    status: 'PROCESSING',
+    error: null,
+    mode: 'Retrying...'
+  });
+  submissionsStore.addLog(req.params.id, 'Manual Retry initiated from Dashboard');
+
+  res.json({ success: true, message: 'Retry initiated' });
+
+  // Run in background
+  processApplicationPipeline(item.parsedData, item, '127.0.0.1');
+});
+
 // Helper to clean and sanitize Time in Business (Years)
 function cleanTimeInBusiness(val) {
   if (!val) return '3';
