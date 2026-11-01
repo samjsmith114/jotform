@@ -120,9 +120,11 @@ function formatEquipmentDescription(category, description) {
   
   if (cat && desc) {
     if (desc.toLowerCase().includes(cat.toLowerCase())) return desc;
-    return `${cat} - ${desc}`;
+    return `Restaurant Food Service & Commercial Kitchen Equipment - ${cat} - ${desc}`;
   }
-  return desc || cat || 'Commercial Food Service & Restaurant Equipment';
+  if (cat) return `Restaurant Food Service & Commercial Kitchen Equipment - ${cat}`;
+  if (desc) return `Restaurant Food Service & Commercial Kitchen Equipment - ${desc}`;
+  return 'Restaurant Food Service & Commercial Kitchen Equipment';
 }
 
 function extractPhone(raw) {
@@ -144,6 +146,64 @@ function extractPhone(raw) {
     }
   }
   return '2145550188';
+}
+
+function extractAddress(raw, prefix) {
+  let addrObj = null;
+  for (const [k, v] of Object.entries(raw || {})) {
+    if (k.toLowerCase().includes(prefix.toLowerCase())) {
+      if (typeof v === 'object' && v !== null && (v.addr_line1 || v.city || v.state)) {
+        addrObj = v;
+        break;
+      }
+      if (typeof v === 'string' && v.startsWith('{')) {
+        try {
+          const p = JSON.parse(v);
+          if (p.addr_line1 || p.city || p.state) {
+            addrObj = p;
+            break;
+          }
+        } catch (e) {}
+      }
+    }
+  }
+
+  if (addrObj) {
+    return {
+      line1: addrObj.addr_line1 || addrObj.address1 || '100 Innovation Way',
+      line2: addrObj.addr_line2 || addrObj.address2 || '',
+      city: addrObj.city || 'Dallas',
+      state: addrObj.state || 'TX',
+      postal: addrObj.postal || addrObj.zip || '75001',
+      country: addrObj.country || 'United States'
+    };
+  }
+
+  return {
+    line1: '100 Innovation Way',
+    line2: '',
+    city: 'Dallas',
+    state: 'TX',
+    postal: '75001',
+    country: 'United States'
+  };
+}
+
+function extractFullName(raw, prefix) {
+  for (const [k, v] of Object.entries(raw || {})) {
+    if (k.toLowerCase().includes(prefix.toLowerCase())) {
+      if (typeof v === 'object' && v !== null && (v.first || v.last)) {
+        return { first: v.first || 'Samuel', last: v.last || 'Smith' };
+      }
+      if (typeof v === 'string' && v.startsWith('{')) {
+        try {
+          const p = JSON.parse(v);
+          if (p.first || p.last) return { first: p.first || 'Samuel', last: p.last || 'Smith' };
+        } catch (e) {}
+      }
+    }
+  }
+  return { first: 'Samuel', last: 'Smith' };
 }
 
 // Helper to extract fields from Jotform payload
@@ -181,7 +241,13 @@ function parseJotformPayload(body) {
   const rawCategory = getVal('q4') || 'Commercial Equipment';
   const rawDescription = getVal('q5') || getVal('description') || 'Business Equipment';
   const formattedEquipmentDescription = formatEquipmentDescription(rawCategory, rawDescription);
-  const timeInBusiness = cleanTimeInBusiness(getVal('time') || getVal('q13') || '3');
+  
+  const bizAddr = extractAddress(raw, 'q12');
+  const homeAddr = extractAddress(raw, 'q20');
+  const owner = extractFullName(raw, 'q15');
+  const rawTime = raw.q13_q13_textbox11 || raw.q13 || raw.timeInBusiness || getVal('q13') || '3';
+  const timeInBusiness = cleanTimeInBusiness(rawTime);
+  const monthlyRevenue = raw.q36_timeIn || raw.q36 || getVal('q36') || getVal('revenue') || getVal('monthly') || '';
 
   return {
     submissionId: raw.submissionID || '',
@@ -194,31 +260,19 @@ function parseJotformPayload(body) {
     dba: getVal('q9') || getVal('dba'),
     businessEntityType: getVal('q10') || 'LLC',
     federalTaxId: getVal('q11') || getVal('ein') || getVal('tax') || '123456789',
-    businessAddress: {
-      line1: raw['q12_q12_address10[addr_line1]'] || getVal('addr_line1') || '100 Innovation Way',
-      line2: raw['q12_q12_address10[addr_line2]'] || '',
-      city: raw['q12_q12_address10[city]'] || getVal('city') || 'Dallas',
-      state: raw['q12_q12_address10[state]'] || getVal('state') || 'TX',
-      postal: raw['q12_q12_address10[postal]'] || getVal('postal') || '75001',
-      country: raw['q12_q12_address10[country]'] || 'United States'
-    },
+    businessAddress: bizAddr,
     timeInBusiness,
-    monthlyRevenue: getVal('q36') || getVal('revenue') || getVal('monthly') || '',
+    monthlyRevenue,
     primaryOwner: {
-      firstName: raw['q15_q15_fullname13[first]'] || getVal('fullname13[first]') || 'Samuel',
-      lastName: raw['q15_q15_fullname13[last]'] || getVal('fullname13[last]') || 'Smith',
+      firstName: owner.first,
+      lastName: owner.last,
       title: 'Member',
       ownershipPercentage: getVal('q16') || '100',
       phone: extractPhone(raw),
       email: getVal('q18') || getVal('email') || 'owner@example.com',
       ssn: getVal('q19') || getVal('ssn') || '232432432',
       dob: getVal('dob') || '',
-      homeAddress: {
-        line1: raw['q20_q20_address18[addr_line1]'] || '100 Innovation Way',
-        city: raw['q20_q20_address18[city]'] || 'Dallas',
-        state: raw['q20_q20_address18[state]'] || 'TX',
-        postal: raw['q20_q20_address18[postal]'] || '75001'
-      }
+      homeAddress: homeAddr
     },
     raw
   };

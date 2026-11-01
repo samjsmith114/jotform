@@ -112,7 +112,8 @@ async function submitToTimePayment(data, onLog) {
     const phoneDigits = cleanDigits(data.primaryOwner?.phone) || '2145550188';
     const einDigits = cleanDigits(data.federalTaxId) || '123456789';
     const ssnDigits = sanitizeSsn(data.primaryOwner?.ssn);
-    const stateName = getStateFullName(data.businessAddress?.state || data.primaryOwner?.homeAddress?.state);
+    const stateName = getStateFullName(data.businessAddress?.state);
+    const ownerStateName = getStateFullName(data.primaryOwner?.homeAddress?.state || data.businessAddress?.state);
     const amountVal = cleanDigits(data.requestedAmount) || '5000';
 
     async function safeFill(selectors, value) {
@@ -292,7 +293,7 @@ async function submitToTimePayment(data, onLog) {
       await safeFill(['[id="people.0.city-input-text"]', 'input[name="people.0.city"]'], homeCity);
 
       // Owner State
-      await selectState('people.0-state', stateName);
+      await selectState('people.0-state', ownerStateName);
 
       await safeFill(['[id="people.0-zip"]', 'input[name="people.0.zip"]'], homeZip);
 
