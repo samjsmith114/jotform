@@ -1,10 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+const { Pool } = require('pg');
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DATA_FILE = path.join(DATA_DIR, 'submissions.json');
 
-// Ensure data directory exists
+// Ensure data directory exists for local disk backup
 if (!fs.existsSync(DATA_DIR)) {
   try {
     fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -13,10 +14,58 @@ if (!fs.existsSync(DATA_DIR)) {
   }
 }
 
+// Supabase PostgreSQL Connection Pool
+const SUPABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres.usffnixhfsfxcvzezpqf:2%24sqxNw%216j7jweP@aws-0-eu-west-1.pooler.supabase.com:6543/postgres';
+
+let pgPool = null;
+try {
+  pgPool = new Pool({
+    connectionString: SUPABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    connectionTimeoutMillis: 10000,
+    max: 10
+  });
+
+  pgPool.on('error', (err) => {
+    console.warn('[Supabase PG Pool Warning]:', err.message);
+  });
+} catch (e) {
+  console.warn('[Supabase Init Warning]:', e.message);
+}
+
 class SubmissionsStore {
   constructor() {
     this.submissions = [];
+    this.dbReady = false;
     this.loadFromDisk();
+    this.initDatabase();
+  }
+
+  async initDatabase() {
+    if (!pgPool) return;
+    try {
+      const client = await pgPool.connect();
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS submissions (
+          id TEXT PRIMARY KEY,
+          timestamp TIMESTAMPTZ DEFAULT NOW(),
+          data JSONB NOT NULL
+        );
+      `);
+      console.log('✅ [Supabase] Connected & "submissions" table ready!');
+
+      // Load existing records from Supabase into memory
+      const res = await client.query('SELECT data FROM submissions ORDER BY timestamp DESC LIMIT 100;');
+      if (res && res.rows && res.rows.length > 0) {
+        this.submissions = res.rows.map(r => r.data);
+        console.log(`✅ [Supabase] Restored ${this.submissions.length} permanent submissions from database!`);
+        this.saveToDisk();
+      }
+      client.release();
+      this.dbReady = true;
+    } catch (err) {
+      console.warn('⚠️ [Supabase Connect Warning, using disk/cache]:', err.message);
+    }
   }
 
   loadFromDisk() {
@@ -29,7 +78,6 @@ class SubmissionsStore {
         }
       }
     } catch (e) {
-      console.warn('[SubmissionsStore] Load error:', e.message);
       this.submissions = [];
     }
   }
@@ -40,8 +88,20 @@ class SubmissionsStore {
         fs.mkdirSync(DATA_DIR, { recursive: true });
       }
       fs.writeFileSync(DATA_FILE, JSON.stringify(this.submissions.slice(0, 100), null, 2), 'utf8');
+    } catch (e) {}
+  }
+
+  async persistToSupabase(item) {
+    if (!pgPool) return;
+    try {
+      await pgPool.query(
+        `INSERT INTO submissions (id, timestamp, data) 
+         VALUES ($1, $2, $3) 
+         ON CONFLICT (id) DO UPDATE SET data = $3;`,
+        [item.id, item.timestamp, JSON.stringify(item)]
+      );
     } catch (e) {
-      console.warn('[SubmissionsStore] Save error:', e.message);
+      console.warn('[Supabase Sync Warning]:', e.message);
     }
   }
 
@@ -80,6 +140,7 @@ class SubmissionsStore {
       this.submissions = this.submissions.slice(0, 100);
     }
     this.saveToDisk();
+    this.persistToSupabase(submission);
     return submission;
   }
 
@@ -89,6 +150,7 @@ class SubmissionsStore {
       const timeStr = new Date().toLocaleTimeString();
       item.logs.push(`[${timeStr}] ${message}`);
       this.saveToDisk();
+      this.persistToSupabase(item);
     }
   }
 
@@ -100,6 +162,7 @@ class SubmissionsStore {
         ...updates
       };
       this.saveToDisk();
+      this.persistToSupabase(this.submissions[index]);
       return this.submissions[index];
     }
     return null;
@@ -113,9 +176,14 @@ class SubmissionsStore {
     return this.submissions.find(s => s.id === id) || null;
   }
 
-  clear() {
+  async clear() {
     this.submissions = [];
     this.saveToDisk();
+    if (pgPool) {
+      try {
+        await pgPool.query('DELETE FROM submissions;');
+      } catch (e) {}
+    }
   }
 }
 
