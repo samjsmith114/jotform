@@ -197,16 +197,22 @@ function extractAddress(raw, prefix) {
   };
 }
 
+function cleanName(val, fallback = 'Samuel') {
+  if (!val) return fallback;
+  const cleaned = String(val).replace(/[^a-zA-Z\s'-]/g, '').trim();
+  return cleaned.length >= 2 ? cleaned : fallback;
+}
+
 function extractFullName(raw, prefix) {
   for (const [k, v] of Object.entries(raw || {})) {
     if (k.toLowerCase().includes(prefix.toLowerCase())) {
       if (typeof v === 'object' && v !== null && (v.first || v.last)) {
-        return { first: v.first || 'Samuel', last: v.last || 'Smith' };
+        return { first: cleanName(v.first, 'Samuel'), last: cleanName(v.last, 'Smith') };
       }
       if (typeof v === 'string' && v.startsWith('{')) {
         try {
           const p = JSON.parse(v);
-          if (p.first || p.last) return { first: p.first || 'Samuel', last: p.last || 'Smith' };
+          if (p.first || p.last) return { first: cleanName(p.first, 'Samuel'), last: cleanName(p.last, 'Smith') };
         } catch (e) {}
       }
     }

@@ -50,6 +50,16 @@ function sanitizeSsn(val) {
   return digits;
 }
 
+function cleanName(val, fallback = 'Samuel') {
+  if (!val) return fallback;
+  if (typeof val === 'object') {
+    val = val.first || val.last || JSON.stringify(val);
+  }
+  // US Financing forms strictly reject numbers in human names (e.g. Asgar1 -> Asgar)
+  const cleaned = String(val).replace(/[^a-zA-Z\s'-]/g, '').trim();
+  return cleaned.length >= 2 ? cleaned : fallback;
+}
+
 async function submitToTimePayment(data, onLog) {
   function emitLog(msg) {
     console.log(`[TimePayment] ${msg}`);
@@ -127,6 +137,8 @@ async function submitToTimePayment(data, onLog) {
             await page.keyboard.press('Control+A');
             await page.keyboard.press('Backspace');
             await page.keyboard.type(String(value), { delay: 30 });
+            await page.keyboard.press('Tab');
+            await page.waitForTimeout(100);
             console.log(`[TimePayment] Filled ${sel} with: ${value}`);
             return true;
           }
@@ -195,8 +207,10 @@ async function submitToTimePayment(data, onLog) {
       await safeFill(['[id="assets-0-costPerUnit"]', 'input[name="assets.0.costPerUnit"]'], amountVal);
       const exactEquipmentDesc = (data.equipmentDescription || data.formattedEquipmentDescription || data.equipmentCategory || 'Commercial Equipment').trim();
       await safeFill(['[id="assets.0.description-input-text"]', 'textarea[name="assets.0.description"]'], exactEquipmentDesc);
-      await safeFill(['[id="people.0.firstname-input-text"]', 'input[name="people.0.firstName"]'], data.primaryOwner?.firstName || 'Samuel');
-      await safeFill(['[id="people.0.lastname-input-text"]', 'input[name="people.0.lastName"]'], data.primaryOwner?.lastName || 'Smith');
+      const cleanFirstName = cleanName(data.primaryOwner?.firstName, 'Samuel');
+      const cleanLastName = cleanName(data.primaryOwner?.lastName, 'Smith');
+      await safeFill(['[id="people.0.firstname-input-text"]', 'input[name="people.0.firstName"]'], cleanFirstName);
+      await safeFill(['[id="people.0.lastname-input-text"]', 'input[name="people.0.lastName"]'], cleanLastName);
       await safeFill(['[id="people.0.email-input-text"]', 'input[name="people.0.email"]'], data.primaryOwner?.email || 'owner@example.com');
 
 
