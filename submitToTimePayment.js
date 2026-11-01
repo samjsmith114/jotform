@@ -60,15 +60,7 @@ async function submitToTimePayment(data, onLog) {
 
   emitLog(`Starting multi-step submission for: ${data.legalBusinessName || 'Applicant'}`);
 
-  const basePortalUrl = process.env.TIMEPAYMENT_URL || 'https://secure.financ.ing/app?dealercode=VHD64&apptype=B';
-  let portalUrl = basePortalUrl;
-
-  // Pass equipment category query parameters in URL so TimePayment maps the proper category
-  if (data.equipmentCategory && !data.equipmentCategory.toLowerCase().includes('other')) {
-    const encCat = encodeURIComponent(data.equipmentCategory);
-    const sep = portalUrl.includes('?') ? '&' : '?';
-    portalUrl = `${portalUrl}${sep}equipmentType=${encCat}&eqtype=${encCat}&category=${encCat}&equipment_type=${encCat}&industry=${encCat}`;
-  }
+  const portalUrl = process.env.TIMEPAYMENT_URL || 'https://secure.financ.ing/app?dealercode=VHD64&apptype=B';
   let browser = null;
   let page = null;
 
@@ -207,10 +199,6 @@ async function submitToTimePayment(data, onLog) {
       await safeFill(['[id="people.0.lastname-input-text"]', 'input[name="people.0.lastName"]'], data.primaryOwner?.lastName || 'Smith');
       await safeFill(['[id="people.0.email-input-text"]', 'input[name="people.0.email"]'], data.primaryOwner?.email || 'owner@example.com');
 
-      // Check if any equipment selection / category dropdown exists on the form
-      if (data.equipmentCategory && !data.equipmentCategory.toLowerCase().includes('other')) {
-        await safeFill(['[id*="equipmentType" i]', '[name*="equipmentType" i]', '[id*="category" i]', '[name*="category" i]'], data.equipmentCategory);
-      }
 
       // --- STEP 2 (Business Details) ---
       await safeFill(['[id="business.name-input-text"]', 'input[name="business.name"]'], data.legalBusinessName || 'Business Applicant LLC');
@@ -454,6 +442,15 @@ async function submitToTimePayment(data, onLog) {
 
     const finalUrl = page.url();
     console.log('[TimePayment] Flow complete at:', finalUrl);
+
+    if (!applicationNumber && page) {
+      try {
+        const screenshotPath = path.join(__dirname, 'public', 'last_error.png');
+        await page.screenshot({ path: screenshotPath, fullPage: true });
+        console.log('[TimePayment] Saved portal error screenshot to public/last_error.png');
+        emitLog('Saved screenshot of portal state to dashboard.');
+      } catch (sErr) {}
+    }
 
     await browser.close();
     return {

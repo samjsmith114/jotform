@@ -44,6 +44,17 @@ app.get('/dashboard', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Portal Error Screenshot Route
+app.get('/last_error.png', (req, res) => {
+  const fs = require('fs');
+  const p = path.join(__dirname, 'public', 'last_error.png');
+  if (fs.existsSync(p)) {
+    return res.sendFile(p);
+  }
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.send('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="200" viewBox="0 0 600 200"><rect width="600" height="200" fill="#0f172a"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#94a3b8" font-family="sans-serif" font-size="16">No portal error screenshot available yet.</text></svg>');
+});
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({
