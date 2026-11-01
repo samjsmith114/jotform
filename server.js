@@ -113,18 +113,15 @@ function cleanTimeInBusiness(val) {
   return String(Math.round(num));
 }
 
-// Helper to combine Equipment Category & Description for TimePayment categorizer
+// Helper to format Equipment Description - strictly matches what applicant typed in description box
 function formatEquipmentDescription(category, description) {
-  const cat = (category && !category.toLowerCase().includes('other') && !category.toLowerCase().includes('select')) ? category.trim() : '';
-  const desc = (description && description.trim()) ? description.trim() : '';
+  const desc = (description && typeof description === 'string' && description.trim()) ? description.trim() : '';
+  if (desc) return desc;
   
-  if (cat && desc) {
-    if (desc.toLowerCase().includes(cat.toLowerCase())) return desc;
-    return `Restaurant Food Service & Commercial Kitchen Equipment - ${cat} - ${desc}`;
-  }
-  if (cat) return `Restaurant Food Service & Commercial Kitchen Equipment - ${cat}`;
-  if (desc) return `Restaurant Food Service & Commercial Kitchen Equipment - ${desc}`;
-  return 'Restaurant Food Service & Commercial Kitchen Equipment';
+  const cat = (category && typeof category === 'string' && !category.toLowerCase().includes('other') && !category.toLowerCase().includes('select')) ? category.trim() : '';
+  if (cat) return cat;
+  
+  return 'Commercial Equipment';
 }
 
 function extractPhone(raw) {
@@ -238,8 +235,8 @@ function parseJotformPayload(body) {
     return '';
   }
 
-  const rawCategory = getVal('q4') || 'Commercial Equipment';
-  const rawDescription = getVal('q5') || getVal('description') || 'Business Equipment';
+  const rawCategory = raw.q4_q4_dropdown2 || raw.q4 || getVal('q4') || 'Commercial Equipment';
+  const rawDescription = raw.q5_q5_textarea3 || raw.q5 || getVal('q5') || getVal('description') || '';
   const formattedEquipmentDescription = formatEquipmentDescription(rawCategory, rawDescription);
   
   const bizAddr = extractAddress(raw, 'q12');
@@ -253,7 +250,7 @@ function parseJotformPayload(body) {
     submissionId: raw.submissionID || '',
     requestedAmount: getVal('q3') || getVal('amount') || '5000',
     equipmentCategory: rawCategory,
-    equipmentDescription: rawDescription,
+    equipmentDescription: formattedEquipmentDescription,
     formattedEquipmentDescription,
     urgency: getVal('q6'),
     legalBusinessName: getVal('q8') || getVal('legal') || getVal('business') || 'Business Applicant',
@@ -376,7 +373,7 @@ app.post('/api/test-submission', async (req, res) => {
     requestedAmount: '5500',
     equipmentCategory: 'Commercial Kitchen Gear',
     equipmentDescription: 'Commercial Reach-In Refrigerator',
-    formattedEquipmentDescription: 'Commercial Kitchen Gear - Commercial Reach-In Refrigerator',
+    formattedEquipmentDescription: 'Commercial Reach-In Refrigerator',
     urgency: 'Immediate',
     legalBusinessName: 'Amiri Commercial Kitchens LLC',
     dba: 'Amiri Kitchens',

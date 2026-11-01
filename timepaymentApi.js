@@ -163,10 +163,13 @@ class TimePaymentApiClient {
       },
       assets: [
         {
-          description: formData.formattedEquipmentDescription || (formData.equipmentCategory && formData.equipmentDescription ? `${formData.equipmentCategory} - ${formData.equipmentDescription}` : (formData.equipmentDescription || formData.equipmentCategory || 'Commercial Equipment')),
+          description: (formData.equipmentDescription || formData.formattedEquipmentDescription || formData.equipmentCategory || 'Commercial Equipment').trim(),
           costPerUnit: costPerUnit,
           quantity: '1',
-          condition: 'New'
+          condition: 'New',
+          type: formData.equipmentCategory || 'Commercial Equipment',
+          category: formData.equipmentCategory || 'Commercial Equipment',
+          equipmentType: formData.equipmentCategory || 'Commercial Equipment'
         }
       ],
       financials: {
